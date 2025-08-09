@@ -8,6 +8,7 @@ import backend from '~backend/client';
 interface DualCurrencyInputProps {
   exchangeRate: number | null;
   onAmountChange: (zmwAmount: number, btcAmount: number) => void;
+  onFeeCalculationUpdate?: (calculation: FeeCalculation | null) => void;
   zmwAmount: string;
   btcAmount: string;
   transactionType: 'btc_to_zmw' | 'zmw_to_btc';
@@ -28,6 +29,7 @@ interface FeeCalculation {
 export function DualCurrencyInput({ 
   exchangeRate, 
   onAmountChange, 
+  onFeeCalculationUpdate,
   zmwAmount, 
   btcAmount,
   transactionType
@@ -56,6 +58,7 @@ export function DualCurrencyInput({
   const calculateFees = async (amountZmw: number) => {
     if (amountZmw <= 0) {
       setFeeCalculation(null);
+      onFeeCalculationUpdate?.(null);
       return;
     }
 
@@ -66,9 +69,11 @@ export function DualCurrencyInput({
         transaction_type: transactionType,
       });
       setFeeCalculation(response);
+      onFeeCalculationUpdate?.(response);
     } catch (error) {
       console.error('Failed to calculate fees:', error);
       setFeeCalculation(null);
+      onFeeCalculationUpdate?.(null);
     } finally {
       setCalculatingFees(false);
     }
@@ -90,6 +95,7 @@ export function DualCurrencyInput({
       return () => clearTimeout(timeoutId);
     } else {
       setFeeCalculation(null);
+      onFeeCalculationUpdate?.(null);
     }
   };
 
@@ -109,6 +115,7 @@ export function DualCurrencyInput({
       return () => clearTimeout(timeoutId);
     } else {
       setFeeCalculation(null);
+      onFeeCalculationUpdate?.(null);
     }
   };
 

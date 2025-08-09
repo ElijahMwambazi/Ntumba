@@ -11,6 +11,7 @@ import { ExchangeRateDisplay } from '../components/ExchangeRateDisplay';
 import { DualCurrencyInput } from '../components/DualCurrencyInput';
 import { PhoneInput } from '../components/PhoneInput';
 import { FeeBreakdown } from '../components/FeeBreakdown';
+import { ConfirmationStep } from '../components/ConfirmationStep';
 import backend from '~backend/client';
 
 interface CreateBtcToZmwResponse {
@@ -23,11 +24,27 @@ interface CreateBtcToZmwResponse {
   expires_at: string;
 }
 
+interface FeeCalculation {
+  amount_zmw: number;
+  amount_sats: number;
+  fee_zmw: number;
+  fee_sats: number;
+  total_zmw: number;
+  total_sats: number;
+  fee_percentage: number;
+  exchange_rate: number;
+  estimated_delivery_time: string;
+}
+
+type Step = 'form' | 'confirm' | 'payment';
+
 export function BtcToZmwPage() {
+  const [currentStep, setCurrentStep] = useState<Step>('form');
   const [recipientPhone, setRecipientPhone] = useState('');
   const [zmwAmount, setZmwAmount] = useState('');
   const [btcAmount, setBtcAmount] = useState('');
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
+  const [feeCalculation, setFeeCalculation] = useState<FeeCalculation | null>(null);
   const [loading, setLoading] = useState(false);
   const [transaction, setTransaction] = useState<CreateBtcToZmwResponse | null>(null);
   const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
@@ -41,6 +58,10 @@ export function BtcToZmwPage() {
     if (formErrors.amount) {
       setFormErrors(prev => ({ ...prev, amount: '' }));
     }
+  };
+
+  const handleFeeCalculationUpdate = (calculation: FeeCalculation | null) => {
+    setFeeCalculation(calculation);
   };
 
   const validateForm = (): boolean => {
@@ -67,18 +88,36 @@ export function BtcToZmwPage() {
         errors.amount = 'Minimum amount is 1 ZMW';
       }
     }
+
+    // Validate fee calculation exists
+    if (!feeCalculation) {
+      errors.fees = 'Please wait for fee calculation to complete';
+    }
     
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!validateForm()) {
       toast({
         title: "Please fix the errors",
         description: "Check the form for validation errors.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCurrentStep('confirm');
+  };
+
+  const handleConfirm = async () => {
+    if (!feeCalculation) {
+      toast({
+        title: "Error",
+        description: "Fee calculation is missing. Please go back and try again.",
         variant: "destructive",
       });
       return;
@@ -94,6 +133,7 @@ export function BtcToZmwPage() {
       });
       
       setTransaction(response);
+      setCurrentStep('payment');
       toast({
         title: "Transaction Created",
         description: "Please pay the Lightning invoice to complete the transaction.",
@@ -108,6 +148,10 @@ export function BtcToZmwPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBack = () => {
+    setCurrentStep('form');
   };
 
   const copyInvoice = () => {
@@ -135,7 +179,34 @@ export function BtcToZmwPage() {
     return (sats / 100000000).toFixed(8);
   };
 
-  if (transaction) {
+  const resetForm = () => {
+    setCurrentStep('form');
+    setTransaction(null);
+    setRecipientPhone('');
+    setZmwAmount('');
+    setBtcAmount('');
+    setFeeCalculation(null);
+    setFormErrors({});
+  };
+
+  // Confirmation Step
+  if (currentStep === 'confirm' && feeCalculation) {
+    return (
+      <ConfirmationStep
+        transactionType="btc_to_zmw"
+        recipientPhone={recipientPhone}
+        zmwAmount={zmwAmount}
+        btcAmount={btcAmount}
+        feeCalculation={feeCalculation}
+        onBack={handleBack}
+        onConfirm={handleConfirm}
+        loading={loading}
+      />
+    );
+  }
+
+  // Payment Step
+  if (currentStep === 'payment' && transaction) {
     const totalBtc = transaction.total_sats / 100000000;
     const amountBtc = transaction.amount_sats / 100000000;
     const feeBtc = transaction.fee_sats / 100000000;
@@ -211,7 +282,7 @@ export function BtcToZmwPage() {
         <TransactionStatus transactionId={transaction.transaction_id} />
 
         <div className="text-center">
-          <Button variant="outline" onClick={() => setTransaction(null)}>
+          <Button variant="outline" onClick={resetForm}>
             Create New Transaction
           </Button>
         </div>
@@ -219,6 +290,7 @@ export function BtcToZmwPage() {
     );
   }
 
+  // Form Step
   return (
     <div className="max-w-md mx-auto space-y-6">
       <div className="text-center">
@@ -238,7 +310,7 @@ export function BtcToZmwPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleFormSubmit} className="space-y-4">
             <PhoneInput
               id="phone"
               label="Recipient Phone Number"
@@ -250,20 +322,19 @@ export function BtcToZmwPage() {
             <DualCurrencyInput
               exchangeRate={exchangeRate}
               onAmountChange={handleAmountChange}
+              onFeeCalculationUpdate={handleFeeCalculationUpdate}
               zmwAmount={zmwAmount}
               btcAmount={btcAmount}
               transactionType="btc_to_zmw"
             />
 
-            <Button type="submit" className="w-full" disabled={loading || !zmwAmount || !recipientPhone}>
-              {loading ? (
-                "Creating Transaction..."
-              ) : (
-                <>
-                  Create Transaction
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </>
-              )}
+            <Button 
+              type="submit" 
+              className="w-full" 
+              disabled={!zmwAmount || !recipientPhone || !feeCalculation}
+            >
+              Review Transaction
+              <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </form>
         </CardContent>
