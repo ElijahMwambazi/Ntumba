@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { TransactionStatus } from '../components/TransactionStatus';
+import { ExchangeRateDisplay } from '../components/ExchangeRateDisplay';
+import { DualCurrencyInput } from '../components/DualCurrencyInput';
 import backend from '~backend/client';
 
 interface CreateZmwToBtcResponse {
@@ -18,15 +20,22 @@ interface CreateZmwToBtcResponse {
 export function ZmwToBtcPage() {
   const [senderPhone, setSenderPhone] = useState('');
   const [recipientLightning, setRecipientLightning] = useState('');
-  const [amountZmw, setAmountZmw] = useState('');
+  const [zmwAmount, setZmwAmount] = useState('');
+  const [btcAmount, setBtcAmount] = useState('');
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [transaction, setTransaction] = useState<CreateZmwToBtcResponse | null>(null);
   const { toast } = useToast();
 
+  const handleAmountChange = (zmw: number, btc: number) => {
+    setZmwAmount(zmw > 0 ? zmw.toString() : '');
+    setBtcAmount(btc > 0 ? btc.toString() : '');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!senderPhone || !recipientLightning || !amountZmw) {
+    if (!senderPhone || !recipientLightning || !zmwAmount) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields.",
@@ -35,7 +44,7 @@ export function ZmwToBtcPage() {
       return;
     }
 
-    const amount = parseFloat(amountZmw);
+    const amount = parseFloat(zmwAmount);
     if (isNaN(amount) || amount <= 0) {
       toast({
         title: "Invalid Amount",
@@ -81,6 +90,10 @@ export function ZmwToBtcPage() {
     }).format(amount);
   };
 
+  const formatBtc = (amount: number) => {
+    return amount.toFixed(8);
+  };
+
   if (transaction) {
     return (
       <div className="max-w-2xl mx-auto space-y-6">
@@ -91,6 +104,8 @@ export function ZmwToBtcPage() {
           </p>
         </div>
 
+        <ExchangeRateDisplay />
+
         <Card>
           <CardHeader>
             <CardTitle>Transaction Details</CardTitle>
@@ -99,7 +114,11 @@ export function ZmwToBtcPage() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <Label className="text-gray-500">Amount (ZMW)</Label>
-                <p className="font-semibold">{formatZmw(parseFloat(amountZmw))}</p>
+                <p className="font-semibold">{formatZmw(parseFloat(zmwAmount))}</p>
+              </div>
+              <div>
+                <Label className="text-gray-500">Amount (BTC)</Label>
+                <p className="font-semibold">{formatBtc(parseFloat(btcAmount))}</p>
               </div>
               <div>
                 <Label className="text-gray-500">Amount (Sats)</Label>
@@ -109,7 +128,9 @@ export function ZmwToBtcPage() {
                 <Label className="text-gray-500">Your Phone</Label>
                 <p className="font-semibold">{senderPhone}</p>
               </div>
-              <div>
+            </div>
+            <div className="pt-2 border-t">
+              <div className="flex justify-between text-sm">
                 <Label className="text-gray-500">Exchange Rate</Label>
                 <p className="font-semibold">1 BTC = {formatZmw(transaction.exchange_rate)}</p>
               </div>
@@ -129,7 +150,7 @@ export function ZmwToBtcPage() {
               <h3 className="font-semibold text-blue-900 mb-2">Mobile Money Payment</h3>
               <div className="space-y-2 text-sm">
                 <p><strong>Reference:</strong> {transaction.collection_reference}</p>
-                <p><strong>Amount:</strong> {formatZmw(parseFloat(amountZmw))}</p>
+                <p><strong>Amount:</strong> {formatZmw(parseFloat(zmwAmount))}</p>
                 <p className="text-blue-700">
                   You should receive a mobile money prompt on your phone ({senderPhone}) shortly.
                 </p>
@@ -157,6 +178,8 @@ export function ZmwToBtcPage() {
           Send Kwacha via mobile money and receive Bitcoin
         </p>
       </div>
+
+      <ExchangeRateDisplay onRateUpdate={setExchangeRate} />
 
       <Card>
         <CardHeader>
@@ -191,21 +214,14 @@ export function ZmwToBtcPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="amount">Amount (ZMW)</Label>
-              <Input
-                id="amount"
-                type="number"
-                placeholder="0.00"
-                min="1"
-                step="0.01"
-                value={amountZmw}
-                onChange={(e) => setAmountZmw(e.target.value)}
-                required
-              />
-            </div>
+            <DualCurrencyInput
+              exchangeRate={exchangeRate}
+              onAmountChange={handleAmountChange}
+              zmwAmount={zmwAmount}
+              btcAmount={btcAmount}
+            />
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !zmwAmount}>
               {loading ? (
                 "Creating Transaction..."
               ) : (
