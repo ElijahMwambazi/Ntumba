@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { TransactionStatus } from '../components/TransactionStatus';
 import { ExchangeRateDisplay } from '../components/ExchangeRateDisplay';
 import { DualCurrencyInput } from '../components/DualCurrencyInput';
+import { PhoneInput } from '../components/PhoneInput';
 import backend from '~backend/client';
 
 interface CreateZmwToBtcResponse {
@@ -25,34 +26,81 @@ export function ZmwToBtcPage() {
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [transaction, setTransaction] = useState<CreateZmwToBtcResponse | null>(null);
+  const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
   const { toast } = useToast();
 
   const handleAmountChange = (zmw: number, btc: number) => {
     setZmwAmount(zmw > 0 ? zmw.toString() : '');
     setBtcAmount(btc > 0 ? btc.toString() : '');
+    
+    // Clear amount error when user starts typing
+    if (formErrors.amount) {
+      setFormErrors(prev => ({ ...prev, amount: '' }));
+    }
+  };
+
+  const validateLightningAddress = (address: string): boolean => {
+    // Basic validation for Lightning address or invoice
+    if (!address) return false;
+    
+    // Lightning address format: user@domain.com
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    // Lightning invoice format: starts with ln
+    const invoiceRegex = /^ln[a-zA-Z0-9]+$/i;
+    
+    return emailRegex.test(address) || invoiceRegex.test(address);
+  };
+
+  const validateForm = (): boolean => {
+    const errors: {[key: string]: string} = {};
+    
+    // Validate sender phone number
+    if (!senderPhone) {
+      errors.senderPhone = 'Your phone number is required';
+    } else {
+      const cleaned = senderPhone.replace(/[^\d+]/g, '');
+      if (!cleaned.startsWith('+260') || cleaned.length !== 13) {
+        errors.senderPhone = 'Please enter a valid Zambian phone number';
+      }
+    }
+    
+    // Validate Lightning address
+    if (!recipientLightning) {
+      errors.lightning = 'Lightning address or invoice is required';
+    } else if (!validateLightningAddress(recipientLightning)) {
+      errors.lightning = 'Please enter a valid Lightning address (user@domain.com) or invoice';
+    }
+    
+    // Validate amount
+    if (!zmwAmount) {
+      errors.amount = 'Amount is required';
+    } else {
+      const amount = parseFloat(zmwAmount);
+      if (isNaN(amount) || amount <= 0) {
+        errors.amount = 'Please enter a valid amount greater than 0';
+      } else if (amount < 1) {
+        errors.amount = 'Minimum amount is 1 ZMW';
+      }
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!senderPhone || !recipientLightning || !zmwAmount) {
+    if (!validateForm()) {
       toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields.",
+        title: "Please fix the errors",
+        description: "Check the form for validation errors.",
         variant: "destructive",
       });
       return;
     }
 
     const amount = parseFloat(zmwAmount);
-    if (isNaN(amount) || amount <= 0) {
-      toast({
-        title: "Invalid Amount",
-        description: "Please enter a valid amount.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     setLoading(true);
     try {
@@ -190,28 +238,39 @@ export function ZmwToBtcPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="sender-phone">Your Phone Number</Label>
-              <Input
-                id="sender-phone"
-                type="tel"
-                placeholder="+260 XXX XXX XXX"
-                value={senderPhone}
-                onChange={(e) => setSenderPhone(e.target.value)}
-                required
-              />
-            </div>
+            <PhoneInput
+              id="sender-phone"
+              label="Your Phone Number"
+              value={senderPhone}
+              onChange={setSenderPhone}
+              required
+            />
 
             <div className="space-y-2">
-              <Label htmlFor="lightning">Recipient Lightning Address</Label>
-              <Input
-                id="lightning"
-                type="text"
-                placeholder="user@wallet.com or Lightning invoice"
-                value={recipientLightning}
-                onChange={(e) => setRecipientLightning(e.target.value)}
-                required
-              />
+              <Label htmlFor="lightning" className={formErrors.lightning ? "text-red-600" : ""}>
+                Recipient Lightning Address
+                <span className="text-red-500 ml-1">*</span>
+              </Label>
+              <div className="relative">
+                <Zap className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  id="lightning"
+                  type="text"
+                  placeholder="user@wallet.com or Lightning invoice"
+                  value={recipientLightning}
+                  onChange={(e) => {
+                    setRecipientLightning(e.target.value);
+                    if (formErrors.lightning) {
+                      setFormErrors(prev => ({ ...prev, lightning: '' }));
+                    }
+                  }}
+                  className={`pl-10 ${formErrors.lightning ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
+                  required
+                />
+              </div>
+              {formErrors.lightning && (
+                <p className="text-sm text-red-600">{formErrors.lightning}</p>
+              )}
             </div>
 
             <DualCurrencyInput
@@ -221,7 +280,7 @@ export function ZmwToBtcPage() {
               btcAmount={btcAmount}
             />
 
-            <Button type="submit" className="w-full" disabled={loading || !zmwAmount}>
+            <Button type="submit" className="w-full" disabled={loading || !zmwAmount || !senderPhone || !recipientLightning}>
               {loading ? (
                 "Creating Transaction..."
               ) : (

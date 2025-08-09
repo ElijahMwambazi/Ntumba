@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowUpDown } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { CurrencyInput } from './CurrencyInput';
 
 interface DualCurrencyInputProps {
   exchangeRate: number | null;
@@ -78,22 +77,18 @@ export function DualCurrencyInput({
     <div className="space-y-4">
       <div className="relative">
         <div className="space-y-2">
-          <Label htmlFor="zmw-amount" className="flex items-center justify-between">
-            <span>Amount (ZMW)</span>
-            {activeField === 'zmw' && (
-              <span className="text-xs text-blue-600 font-medium">Active</span>
-            )}
-          </Label>
-          <Input
+          <CurrencyInput
             id="zmw-amount"
-            type="number"
-            placeholder="0.00"
-            min="0"
-            step="0.01"
+            label="Amount (ZMW)"
+            currency="ZMW"
             value={localZmwAmount}
-            onChange={(e) => handleZmwChange(e.target.value)}
+            onChange={handleZmwChange}
             className={activeField === 'zmw' ? 'ring-2 ring-blue-500' : ''}
+            required
           />
+          {activeField === 'zmw' && (
+            <div className="text-xs text-blue-600 font-medium">Active field</div>
+          )}
         </div>
 
         <div className="flex justify-center my-2">
@@ -109,22 +104,18 @@ export function DualCurrencyInput({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="btc-amount" className="flex items-center justify-between">
-            <span>Amount (BTC)</span>
-            {activeField === 'btc' && (
-              <span className="text-xs text-blue-600 font-medium">Active</span>
-            )}
-          </Label>
-          <Input
+          <CurrencyInput
             id="btc-amount"
-            type="number"
-            placeholder="0.00000000"
-            min="0"
-            step="0.00000001"
+            label="Amount (BTC)"
+            currency="BTC"
             value={localBtcAmount}
-            onChange={(e) => handleBtcChange(e.target.value)}
+            onChange={handleBtcChange}
             className={activeField === 'btc' ? 'ring-2 ring-blue-500' : ''}
+            step="0.00000001"
           />
+          {activeField === 'btc' && (
+            <div className="text-xs text-blue-600 font-medium">Active field</div>
+          )}
         </div>
       </div>
 

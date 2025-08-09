@@ -9,6 +9,7 @@ import { QRCodeDisplay } from '../components/QRCodeDisplay';
 import { TransactionStatus } from '../components/TransactionStatus';
 import { ExchangeRateDisplay } from '../components/ExchangeRateDisplay';
 import { DualCurrencyInput } from '../components/DualCurrencyInput';
+import { PhoneInput } from '../components/PhoneInput';
 import backend from '~backend/client';
 
 interface CreateBtcToZmwResponse {
@@ -26,34 +27,61 @@ export function BtcToZmwPage() {
   const [exchangeRate, setExchangeRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [transaction, setTransaction] = useState<CreateBtcToZmwResponse | null>(null);
+  const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
   const { toast } = useToast();
 
   const handleAmountChange = (zmw: number, btc: number) => {
     setZmwAmount(zmw > 0 ? zmw.toString() : '');
     setBtcAmount(btc > 0 ? btc.toString() : '');
+    
+    // Clear amount error when user starts typing
+    if (formErrors.amount) {
+      setFormErrors(prev => ({ ...prev, amount: '' }));
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const errors: {[key: string]: string} = {};
+    
+    // Validate phone number
+    if (!recipientPhone) {
+      errors.phone = 'Recipient phone number is required';
+    } else {
+      const cleaned = recipientPhone.replace(/[^\d+]/g, '');
+      if (!cleaned.startsWith('+260') || cleaned.length !== 13) {
+        errors.phone = 'Please enter a valid Zambian phone number';
+      }
+    }
+    
+    // Validate amount
+    if (!zmwAmount) {
+      errors.amount = 'Amount is required';
+    } else {
+      const amount = parseFloat(zmwAmount);
+      if (isNaN(amount) || amount <= 0) {
+        errors.amount = 'Please enter a valid amount greater than 0';
+      } else if (amount < 1) {
+        errors.amount = 'Minimum amount is 1 ZMW';
+      }
+    }
+    
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!recipientPhone || !zmwAmount) {
+    if (!validateForm()) {
       toast({
-        title: "Missing Information",
-        description: "Please fill in all required fields.",
+        title: "Please fix the errors",
+        description: "Check the form for validation errors.",
         variant: "destructive",
       });
       return;
     }
 
     const amount = parseFloat(zmwAmount);
-    if (isNaN(amount) || amount <= 0) {
-      toast({
-        title: "Invalid Amount",
-        description: "Please enter a valid amount.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     setLoading(true);
     try {
@@ -209,17 +237,13 @@ export function BtcToZmwPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="phone">Recipient Phone Number</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+260 XXX XXX XXX"
-                value={recipientPhone}
-                onChange={(e) => setRecipientPhone(e.target.value)}
-                required
-              />
-            </div>
+            <PhoneInput
+              id="phone"
+              label="Recipient Phone Number"
+              value={recipientPhone}
+              onChange={setRecipientPhone}
+              required
+            />
 
             <DualCurrencyInput
               exchangeRate={exchangeRate}
@@ -228,7 +252,7 @@ export function BtcToZmwPage() {
               btcAmount={btcAmount}
             />
 
-            <Button type="submit" className="w-full" disabled={loading || !zmwAmount}>
+            <Button type="submit" className="w-full" disabled={loading || !zmwAmount || !recipientPhone}>
               {loading ? (
                 "Creating Transaction..."
               ) : (
