@@ -5,6 +5,10 @@ export interface Transaction {
   amount_zmw: number;
   amount_sats: number;
   exchange_rate: number;
+  fee_zmw: number;
+  fee_sats: number;
+  total_zmw: number;
+  total_sats: number;
   sender_info?: any;
   recipient_info: any;
   lightning_invoice?: string;
@@ -53,4 +57,14 @@ export interface LipilaPayout {
   recipient: string;
   status: string;
   reference: string;
+}
+
+export interface FeeCalculation {
+  amount_zmw: number;
+  amount_sats: number;
+  fee_zmw: number;
+  fee_sats: number;
+  total_zmw: number;
+  total_sats: number;
+  fee_percentage: number;
 }

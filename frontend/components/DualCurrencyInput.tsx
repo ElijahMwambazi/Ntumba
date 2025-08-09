@@ -1,24 +1,42 @@
 import { useState, useEffect } from 'react';
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowUpDown, Calculator } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CurrencyInput } from './CurrencyInput';
+import { FeeBreakdown } from './FeeBreakdown';
+import backend from '~backend/client';
 
 interface DualCurrencyInputProps {
   exchangeRate: number | null;
   onAmountChange: (zmwAmount: number, btcAmount: number) => void;
   zmwAmount: string;
   btcAmount: string;
+  transactionType: 'btc_to_zmw' | 'zmw_to_btc';
+}
+
+interface FeeCalculation {
+  amount_zmw: number;
+  amount_sats: number;
+  fee_zmw: number;
+  fee_sats: number;
+  total_zmw: number;
+  total_sats: number;
+  fee_percentage: number;
+  exchange_rate: number;
+  estimated_delivery_time: string;
 }
 
 export function DualCurrencyInput({ 
   exchangeRate, 
   onAmountChange, 
   zmwAmount, 
-  btcAmount 
+  btcAmount,
+  transactionType
 }: DualCurrencyInputProps) {
   const [activeField, setActiveField] = useState<'zmw' | 'btc'>('zmw');
   const [localZmwAmount, setLocalZmwAmount] = useState(zmwAmount);
   const [localBtcAmount, setLocalBtcAmount] = useState(btcAmount);
+  const [feeCalculation, setFeeCalculation] = useState<FeeCalculation | null>(null);
+  const [calculatingFees, setCalculatingFees] = useState(false);
 
   useEffect(() => {
     setLocalZmwAmount(zmwAmount);
@@ -35,6 +53,27 @@ export function DualCurrencyInput({
     return btc * exchangeRate;
   };
 
+  const calculateFees = async (amountZmw: number) => {
+    if (amountZmw <= 0) {
+      setFeeCalculation(null);
+      return;
+    }
+
+    setCalculatingFees(true);
+    try {
+      const response = await backend.exchange.calculateFees({
+        amount_zmw: amountZmw,
+        transaction_type: transactionType,
+      });
+      setFeeCalculation(response);
+    } catch (error) {
+      console.error('Failed to calculate fees:', error);
+      setFeeCalculation(null);
+    } finally {
+      setCalculatingFees(false);
+    }
+  };
+
   const handleZmwChange = (value: string) => {
     setLocalZmwAmount(value);
     setActiveField('zmw');
@@ -44,6 +83,14 @@ export function DualCurrencyInput({
     
     setLocalBtcAmount(btc > 0 ? btc.toFixed(8) : '');
     onAmountChange(zmw, btc);
+
+    // Calculate fees with debouncing
+    if (zmw > 0) {
+      const timeoutId = setTimeout(() => calculateFees(zmw), 500);
+      return () => clearTimeout(timeoutId);
+    } else {
+      setFeeCalculation(null);
+    }
   };
 
   const handleBtcChange = (value: string) => {
@@ -55,6 +102,14 @@ export function DualCurrencyInput({
     
     setLocalZmwAmount(zmw > 0 ? zmw.toFixed(2) : '');
     onAmountChange(zmw, btc);
+
+    // Calculate fees with debouncing
+    if (zmw > 0) {
+      const timeoutId = setTimeout(() => calculateFees(zmw), 500);
+      return () => clearTimeout(timeoutId);
+    } else {
+      setFeeCalculation(null);
+    }
   };
 
   const swapFields = () => {
@@ -119,7 +174,7 @@ export function DualCurrencyInput({
         </div>
       </div>
 
-      {exchangeRate && (localZmwAmount || localBtcAmount) && (
+      {exchangeRate && (localZmwAmount || localBtcAmount) && !feeCalculation && (
         <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
           <div className="flex justify-between">
             <span>Exchange Rate:</span>
@@ -138,6 +193,25 @@ export function DualCurrencyInput({
             </div>
           )}
         </div>
+      )}
+
+      {calculatingFees && (
+        <div className="flex items-center justify-center p-4 bg-gray-50 rounded-lg">
+          <Calculator className="h-4 w-4 animate-pulse mr-2" />
+          <span className="text-sm text-gray-600">Calculating fees...</span>
+        </div>
+      )}
+
+      {feeCalculation && (
+        <FeeBreakdown
+          amount={feeCalculation.amount_zmw}
+          fee={feeCalculation.fee_zmw}
+          total={feeCalculation.total_zmw}
+          currency="ZMW"
+          exchangeRate={feeCalculation.exchange_rate}
+          feePercentage={feeCalculation.fee_percentage}
+          estimatedDeliveryTime={feeCalculation.estimated_delivery_time}
+        />
       )}
     </div>
   );

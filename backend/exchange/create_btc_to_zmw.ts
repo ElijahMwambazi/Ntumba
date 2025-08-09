@@ -3,6 +3,7 @@ import { exchangeDB } from "./db";
 import { exchangeRateService } from "./exchange_rate_service";
 import { liquidityService } from "./liquidity_service";
 import { voltageClient } from "./voltage_client";
+import { feeService } from "./fee_service";
 import type { RecipientInfo } from "./types";
 
 interface CreateBtcToZmwRequest {
@@ -14,6 +15,8 @@ interface CreateBtcToZmwResponse {
   transaction_id: string;
   lightning_invoice: string;
   amount_sats: number;
+  fee_sats: number;
+  total_sats: number;
   exchange_rate: number;
   expires_at: string;
 }
@@ -32,9 +35,11 @@ export const createBtcToZmw = api<CreateBtcToZmwRequest, CreateBtcToZmwResponse>
 
     // Get current exchange rate
     const rate = await exchangeRateService.getCurrentRate();
-    const amountSats = exchangeRateService.zmwToSats(req.amount_zmw, rate);
+    
+    // Calculate fees
+    const feeCalculation = await feeService.calculateFees(req.amount_zmw, rate);
 
-    // Check ZMW liquidity availability
+    // Check ZMW liquidity availability (for the amount without fees)
     const hasLiquidity = await liquidityService.checkAvailability("ZMW", req.amount_zmw);
     if (!hasLiquidity) {
       throw APIError.resourceExhausted("Insufficient ZMW liquidity");
@@ -44,20 +49,23 @@ export const createBtcToZmw = api<CreateBtcToZmwRequest, CreateBtcToZmwResponse>
     await liquidityService.reserveLiquidity("ZMW", req.amount_zmw);
 
     try {
-      // Create Lightning invoice
+      // Create Lightning invoice for the total amount (including fees)
       const invoice = await voltageClient.createInvoice(
-        amountSats,
-        `BTC to ZMW exchange: ${req.amount_zmw} ZMW`
+        feeCalculation.total_sats,
+        `BTC to ZMW exchange: ${req.amount_zmw} ZMW + ${feeCalculation.fee_zmw} ZMW fee`
       );
 
       // Create transaction record
       const transaction = await exchangeDB.queryRow<{ id: string }>`
         INSERT INTO transactions (
-          type, amount_zmw, amount_sats, exchange_rate, 
+          type, amount_zmw, amount_sats, fee_zmw, fee_sats, 
+          total_zmw, total_sats, exchange_rate, 
           recipient_info, lightning_invoice, voltage_invoice_id
         )
         VALUES (
-          'btc_to_zmw', ${req.amount_zmw}, ${amountSats}, ${rate},
+          'btc_to_zmw', ${req.amount_zmw}, ${feeCalculation.amount_sats}, 
+          ${feeCalculation.fee_zmw}, ${feeCalculation.fee_sats},
+          ${feeCalculation.total_zmw}, ${feeCalculation.total_sats}, ${rate},
           ${JSON.stringify(req.recipient_info)}, ${invoice.payment_request}, ${invoice.id}
         )
         RETURNING id
@@ -66,7 +74,9 @@ export const createBtcToZmw = api<CreateBtcToZmwRequest, CreateBtcToZmwResponse>
       return {
         transaction_id: transaction!.id,
         lightning_invoice: invoice.payment_request,
-        amount_sats: amountSats,
+        amount_sats: feeCalculation.amount_sats,
+        fee_sats: feeCalculation.fee_sats,
+        total_sats: feeCalculation.total_sats,
         exchange_rate: rate,
         expires_at: invoice.expires_at,
       };

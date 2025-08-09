@@ -9,11 +9,14 @@ import { TransactionStatus } from '../components/TransactionStatus';
 import { ExchangeRateDisplay } from '../components/ExchangeRateDisplay';
 import { DualCurrencyInput } from '../components/DualCurrencyInput';
 import { PhoneInput } from '../components/PhoneInput';
+import { FeeBreakdown } from '../components/FeeBreakdown';
 import backend from '~backend/client';
 
 interface CreateZmwToBtcResponse {
   transaction_id: string;
   amount_sats: number;
+  fee_sats: number;
+  total_sats: number;
   exchange_rate: number;
   collection_reference: string;
 }
@@ -138,11 +141,16 @@ export function ZmwToBtcPage() {
     }).format(amount);
   };
 
-  const formatBtc = (amount: number) => {
-    return amount.toFixed(8);
+  const formatBtc = (sats: number) => {
+    return (sats / 100000000).toFixed(8);
   };
 
   if (transaction) {
+    const totalZmw = (transaction.amount_sats + transaction.fee_sats) / 100000000 * transaction.exchange_rate;
+    const amountZmw = parseFloat(zmwAmount);
+    const feeZmw = totalZmw - amountZmw;
+    const amountBtc = transaction.amount_sats / 100000000;
+
     return (
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="text-center">
@@ -154,6 +162,15 @@ export function ZmwToBtcPage() {
 
         <ExchangeRateDisplay />
 
+        <FeeBreakdown
+          amount={amountZmw}
+          fee={feeZmw}
+          total={totalZmw}
+          currency="ZMW"
+          exchangeRate={transaction.exchange_rate}
+          estimatedDeliveryTime="Bitcoin sent instantly after mobile money confirmation"
+        />
+
         <Card>
           <CardHeader>
             <CardTitle>Transaction Details</CardTitle>
@@ -161,26 +178,13 @@ export function ZmwToBtcPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <Label className="text-gray-500">Amount (ZMW)</Label>
-                <p className="font-semibold">{formatZmw(parseFloat(zmwAmount))}</p>
-              </div>
-              <div>
-                <Label className="text-gray-500">Amount (BTC)</Label>
-                <p className="font-semibold">{formatBtc(parseFloat(btcAmount))}</p>
-              </div>
-              <div>
-                <Label className="text-gray-500">Amount (Sats)</Label>
-                <p className="font-semibold">{formatSats(transaction.amount_sats)}</p>
+                <Label className="text-gray-500">You'll receive</Label>
+                <p className="font-semibold">{formatBtc(transaction.amount_sats)} BTC</p>
+                <p className="text-xs text-gray-500">{formatSats(transaction.amount_sats)} sats</p>
               </div>
               <div>
                 <Label className="text-gray-500">Your Phone</Label>
                 <p className="font-semibold">{senderPhone}</p>
-              </div>
-            </div>
-            <div className="pt-2 border-t">
-              <div className="flex justify-between text-sm">
-                <Label className="text-gray-500">Exchange Rate</Label>
-                <p className="font-semibold">1 BTC = {formatZmw(transaction.exchange_rate)}</p>
               </div>
             </div>
           </CardContent>
@@ -198,7 +202,7 @@ export function ZmwToBtcPage() {
               <h3 className="font-semibold text-blue-900 mb-2">Mobile Money Payment</h3>
               <div className="space-y-2 text-sm">
                 <p><strong>Reference:</strong> {transaction.collection_reference}</p>
-                <p><strong>Amount:</strong> {formatZmw(parseFloat(zmwAmount))}</p>
+                <p><strong>Total Amount:</strong> {formatZmw(totalZmw)}</p>
                 <p className="text-blue-700">
                   You should receive a mobile money prompt on your phone ({senderPhone}) shortly.
                 </p>
@@ -278,6 +282,7 @@ export function ZmwToBtcPage() {
               onAmountChange={handleAmountChange}
               zmwAmount={zmwAmount}
               btcAmount={btcAmount}
+              transactionType="zmw_to_btc"
             />
 
             <Button type="submit" className="w-full" disabled={loading || !zmwAmount || !senderPhone || !recipientLightning}>

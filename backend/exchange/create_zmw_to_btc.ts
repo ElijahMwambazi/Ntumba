@@ -3,6 +3,7 @@ import { exchangeDB } from "./db";
 import { exchangeRateService } from "./exchange_rate_service";
 import { liquidityService } from "./liquidity_service";
 import { lilipaClient } from "./lipila_client";
+import { feeService } from "./fee_service";
 import type { RecipientInfo } from "./types";
 
 interface CreateZmwToBtcRequest {
@@ -14,6 +15,8 @@ interface CreateZmwToBtcRequest {
 interface CreateZmwToBtcResponse {
   transaction_id: string;
   amount_sats: number;
+  fee_sats: number;
+  total_sats: number;
   exchange_rate: number;
   collection_reference: string;
 }
@@ -32,10 +35,12 @@ export const createZmwToBtc = api<CreateZmwToBtcRequest, CreateZmwToBtcResponse>
 
     // Get current exchange rate
     const rate = await exchangeRateService.getCurrentRate();
-    const amountSats = exchangeRateService.zmwToSats(req.amount_zmw, rate);
+    
+    // Calculate fees
+    const feeCalculation = await feeService.calculateFees(req.amount_zmw, rate);
 
-    // Check BTC liquidity availability
-    const btcAmount = amountSats / 100000000;
+    // Check BTC liquidity availability (for the amount without fees)
+    const btcAmount = feeCalculation.amount_sats / 100000000;
     const hasLiquidity = await liquidityService.checkAvailability("BTC", btcAmount);
     if (!hasLiquidity) {
       throw APIError.resourceExhausted("Insufficient BTC liquidity");
@@ -48,11 +53,14 @@ export const createZmwToBtc = api<CreateZmwToBtcRequest, CreateZmwToBtcResponse>
       // Create transaction record
       const transaction = await exchangeDB.queryRow<{ id: string }>`
         INSERT INTO transactions (
-          type, amount_zmw, amount_sats, exchange_rate,
+          type, amount_zmw, amount_sats, fee_zmw, fee_sats,
+          total_zmw, total_sats, exchange_rate,
           sender_info, recipient_info
         )
         VALUES (
-          'zmw_to_btc', ${req.amount_zmw}, ${amountSats}, ${rate},
+          'zmw_to_btc', ${req.amount_zmw}, ${feeCalculation.amount_sats},
+          ${feeCalculation.fee_zmw}, ${feeCalculation.fee_sats},
+          ${feeCalculation.total_zmw}, ${feeCalculation.total_sats}, ${rate},
           ${JSON.stringify({ phone: req.sender_phone })}, ${JSON.stringify(req.recipient_info)}
         )
         RETURNING id
@@ -60,9 +68,9 @@ export const createZmwToBtc = api<CreateZmwToBtcRequest, CreateZmwToBtcResponse>
 
       const transactionId = transaction!.id;
 
-      // Initiate ZMW collection
+      // Initiate ZMW collection for the total amount (including fees)
       const collection = await lilipaClient.collectDeposit(
-        req.amount_zmw,
+        feeCalculation.total_zmw,
         req.sender_phone,
         `ZMW-BTC-${transactionId}`
       );
@@ -76,7 +84,9 @@ export const createZmwToBtc = api<CreateZmwToBtcRequest, CreateZmwToBtcResponse>
 
       return {
         transaction_id: transactionId,
-        amount_sats: amountSats,
+        amount_sats: feeCalculation.amount_sats,
+        fee_sats: feeCalculation.fee_sats,
+        total_sats: feeCalculation.total_sats,
         exchange_rate: rate,
         collection_reference: collection.reference,
       };

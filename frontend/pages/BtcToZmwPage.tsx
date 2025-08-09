@@ -10,12 +10,15 @@ import { TransactionStatus } from '../components/TransactionStatus';
 import { ExchangeRateDisplay } from '../components/ExchangeRateDisplay';
 import { DualCurrencyInput } from '../components/DualCurrencyInput';
 import { PhoneInput } from '../components/PhoneInput';
+import { FeeBreakdown } from '../components/FeeBreakdown';
 import backend from '~backend/client';
 
 interface CreateBtcToZmwResponse {
   transaction_id: string;
   lightning_invoice: string;
   amount_sats: number;
+  fee_sats: number;
+  total_sats: number;
   exchange_rate: number;
   expires_at: string;
 }
@@ -128,11 +131,15 @@ export function BtcToZmwPage() {
     }).format(amount);
   };
 
-  const formatBtc = (amount: number) => {
-    return amount.toFixed(8);
+  const formatBtc = (sats: number) => {
+    return (sats / 100000000).toFixed(8);
   };
 
   if (transaction) {
+    const totalBtc = transaction.total_sats / 100000000;
+    const amountBtc = transaction.amount_sats / 100000000;
+    const feeBtc = transaction.fee_sats / 100000000;
+
     return (
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="text-center">
@@ -144,6 +151,15 @@ export function BtcToZmwPage() {
 
         <ExchangeRateDisplay />
 
+        <FeeBreakdown
+          amount={amountBtc}
+          fee={feeBtc}
+          total={totalBtc}
+          currency="BTC"
+          exchangeRate={transaction.exchange_rate}
+          estimatedDeliveryTime="Funds arrive within 5-10 minutes after Lightning payment"
+        />
+
         <Card>
           <CardHeader>
             <CardTitle>Transaction Details</CardTitle>
@@ -151,26 +167,12 @@ export function BtcToZmwPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <Label className="text-gray-500">Amount (ZMW)</Label>
+                <Label className="text-gray-500">Recipient gets</Label>
                 <p className="font-semibold">{formatZmw(parseFloat(zmwAmount))}</p>
-              </div>
-              <div>
-                <Label className="text-gray-500">Amount (BTC)</Label>
-                <p className="font-semibold">{formatBtc(parseFloat(btcAmount))}</p>
-              </div>
-              <div>
-                <Label className="text-gray-500">Amount (Sats)</Label>
-                <p className="font-semibold">{formatSats(transaction.amount_sats)}</p>
               </div>
               <div>
                 <Label className="text-gray-500">Recipient</Label>
                 <p className="font-semibold">{recipientPhone}</p>
-              </div>
-            </div>
-            <div className="pt-2 border-t">
-              <div className="flex justify-between text-sm">
-                <Label className="text-gray-500">Exchange Rate</Label>
-                <p className="font-semibold">1 BTC = {formatZmw(transaction.exchange_rate)}</p>
               </div>
             </div>
           </CardContent>
@@ -250,6 +252,7 @@ export function BtcToZmwPage() {
               onAmountChange={handleAmountChange}
               zmwAmount={zmwAmount}
               btcAmount={btcAmount}
+              transactionType="btc_to_zmw"
             />
 
             <Button type="submit" className="w-full" disabled={loading || !zmwAmount || !recipientPhone}>
