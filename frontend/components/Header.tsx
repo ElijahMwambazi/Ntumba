@@ -13,7 +13,7 @@ export function Header() {
         <div className="flex items-center justify-between h-16">
           <Link to="/btc-to-zmw" className="flex items-center space-x-2">
             <Bitcoin className="h-8 w-8 text-orange-500" />
-            <span className="text-xl font-bold text-gray-900">BTC ⇄ ZMW</span>
+            <span className="text-xl font-bold text-gray-900">Ntumba</span>
           </Link>
 
           <nav className="flex items-center space-x-4">
