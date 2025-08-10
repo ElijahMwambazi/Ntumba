@@ -212,10 +212,10 @@ export function BtcToZmwPage() {
     const feeBtc = transaction.fee_sats / 100000000;
 
     return (
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-2xl mx-auto space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">Pay Lightning Invoice</h1>
-          <p className="text-gray-600 mt-2">
+          <p className="text-gray-600 mt-3">
             Scan the QR code or copy the invoice to complete your transaction
           </p>
         </div>
@@ -235,15 +235,15 @@ export function BtcToZmwPage() {
           <CardHeader>
             <CardTitle>Transaction Details</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
                 <Label className="text-gray-500">Recipient gets</Label>
-                <p className="font-semibold">{formatZmw(parseFloat(zmwAmount))}</p>
+                <p className="font-semibold mt-1">{formatZmw(parseFloat(zmwAmount))}</p>
               </div>
               <div>
                 <Label className="text-gray-500">Recipient</Label>
-                <p className="font-semibold">{recipientPhone}</p>
+                <p className="font-semibold mt-1">{recipientPhone}</p>
               </div>
             </div>
           </CardContent>
@@ -256,10 +256,10 @@ export function BtcToZmwPage() {
               Pay this invoice with your Lightning wallet
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
             <QRCodeDisplay value={transaction.lightning_invoice} />
             
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label>Invoice</Label>
               <div className="flex space-x-2">
                 <Input
@@ -267,7 +267,7 @@ export function BtcToZmwPage() {
                   readOnly
                   className="font-mono text-xs"
                 />
-                <Button variant="outline" size="sm" onClick={copyInvoice}>
+                <Button variant="outline" size="sm" onClick={copyInvoice} className="min-w-[44px] h-10">
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
@@ -282,7 +282,7 @@ export function BtcToZmwPage() {
         <TransactionStatus transactionId={transaction.transaction_id} />
 
         <div className="text-center">
-          <Button variant="outline" onClick={resetForm}>
+          <Button variant="outline" onClick={resetForm} className="h-12 px-8">
             Create New Transaction
           </Button>
         </div>
@@ -292,10 +292,10 @@ export function BtcToZmwPage() {
 
   // Form Step
   return (
-    <div className="max-w-md mx-auto space-y-6">
+    <div className="max-w-md mx-auto space-y-8">
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900">Bitcoin → Kwacha</h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-gray-600 mt-3">
           Send Bitcoin and recipient gets Kwacha via mobile money
         </p>
       </div>
@@ -310,7 +310,7 @@ export function BtcToZmwPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleFormSubmit} className="space-y-4">
+          <form onSubmit={handleFormSubmit} className="space-y-6">
             <PhoneInput
               id="phone"
               label="Recipient Phone Number"
@@ -330,7 +330,7 @@ export function BtcToZmwPage() {
 
             <Button 
               type="submit" 
-              className="w-full" 
+              className="w-full h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold" 
               disabled={!zmwAmount || !recipientPhone || !feeCalculation}
             >
               Review Transaction

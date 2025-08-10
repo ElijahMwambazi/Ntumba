@@ -225,10 +225,10 @@ export function ZmwToBtcPage() {
     const amountBtc = transaction.amount_sats / 100000000;
 
     return (
-      <div className="max-w-2xl mx-auto space-y-6">
+      <div className="max-w-2xl mx-auto space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">Send Mobile Money</h1>
-          <p className="text-gray-600 mt-2">
+          <p className="text-gray-600 mt-3">
             Complete the mobile money payment to receive Bitcoin
           </p>
         </div>
@@ -248,16 +248,16 @@ export function ZmwToBtcPage() {
           <CardHeader>
             <CardTitle>Transaction Details</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-6 text-sm">
               <div>
                 <Label className="text-gray-500">You'll receive</Label>
-                <p className="font-semibold">{formatBtc(transaction.amount_sats)} BTC</p>
+                <p className="font-semibold mt-1">{formatBtc(transaction.amount_sats)} BTC</p>
                 <p className="text-xs text-gray-500">{formatSats(transaction.amount_sats)} sats</p>
               </div>
               <div>
                 <Label className="text-gray-500">Your Phone</Label>
-                <p className="font-semibold">{senderPhone}</p>
+                <p className="font-semibold mt-1">{senderPhone}</p>
               </div>
             </div>
           </CardContent>
@@ -270,10 +270,10 @@ export function ZmwToBtcPage() {
               Send money from your mobile money account
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h3 className="font-semibold text-blue-900 mb-2">Mobile Money Payment</h3>
-              <div className="space-y-2 text-sm">
+          <CardContent className="space-y-6">
+            <div className="bg-blue-50 p-6 rounded-lg">
+              <h3 className="font-semibold text-blue-900 mb-3">Mobile Money Payment</h3>
+              <div className="space-y-3 text-sm">
                 <p><strong>Reference:</strong> {transaction.collection_reference}</p>
                 <p><strong>Total Amount:</strong> {formatZmw(totalZmw)}</p>
                 <p className="text-blue-700">
@@ -287,7 +287,7 @@ export function ZmwToBtcPage() {
         <TransactionStatus transactionId={transaction.transaction_id} />
 
         <div className="text-center">
-          <Button variant="outline" onClick={resetForm}>
+          <Button variant="outline" onClick={resetForm} className="h-12 px-8">
             Create New Transaction
           </Button>
         </div>
@@ -297,10 +297,10 @@ export function ZmwToBtcPage() {
 
   // Form Step
   return (
-    <div className="max-w-md mx-auto space-y-6">
+    <div className="max-w-md mx-auto space-y-8">
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900">Kwacha → Bitcoin</h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-gray-600 mt-3">
           Send Kwacha via mobile money and receive Bitcoin
         </p>
       </div>
@@ -315,7 +315,7 @@ export function ZmwToBtcPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleFormSubmit} className="space-y-4">
+          <form onSubmit={handleFormSubmit} className="space-y-6">
             <PhoneInput
               id="sender-phone"
               label="Your Phone Number"
@@ -324,7 +324,7 @@ export function ZmwToBtcPage() {
               required
             />
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label htmlFor="lightning" className={formErrors.lightning ? "text-red-600" : ""}>
                 Recipient Lightning Address
                 <span className="text-red-500 ml-1">*</span>
@@ -342,7 +342,7 @@ export function ZmwToBtcPage() {
                       setFormErrors(prev => ({ ...prev, lightning: '' }));
                     }
                   }}
-                  className={`pl-10 ${formErrors.lightning ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
+                  className={`pl-10 h-12 ${formErrors.lightning ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
                   required
                 />
               </div>
@@ -362,7 +362,7 @@ export function ZmwToBtcPage() {
 
             <Button 
               type="submit" 
-              className="w-full" 
+              className="w-full h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold" 
               disabled={!zmwAmount || !senderPhone || !recipientLightning || !feeCalculation}
             >
               Review Transaction

@@ -68,10 +68,10 @@ export function ConfirmationStep({
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-8">
       <div className="text-center">
         <h1 className="text-3xl font-bold text-gray-900">Review & Confirm</h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-gray-600 mt-3">
           Please review your transaction details before confirming
         </p>
       </div>
@@ -85,15 +85,15 @@ export function ConfirmationStep({
             </Badge>
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-8">
           {/* Transaction Details */}
-          <div className="space-y-4">
+          <div className="space-y-6">
             <h3 className="font-semibold text-lg">Transaction Details</h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {transactionType === 'btc_to_zmw' ? (
                 <>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="text-sm text-gray-500">You're sending</div>
                     <div className="font-semibold text-lg">
                       {formatCurrency(feeCalculation.total_sats / 100000000, 'BTC')}
@@ -102,7 +102,7 @@ export function ConfirmationStep({
                       {formatSats(feeCalculation.total_sats)} sats
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="text-sm text-gray-500">Recipient gets</div>
                     <div className="font-semibold text-lg">
                       {formatCurrency(feeCalculation.amount_zmw, 'ZMW')}
@@ -114,7 +114,7 @@ export function ConfirmationStep({
                 </>
               ) : (
                 <>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="text-sm text-gray-500">You're sending</div>
                     <div className="font-semibold text-lg">
                       {formatCurrency(feeCalculation.total_zmw, 'ZMW')}
@@ -123,7 +123,7 @@ export function ConfirmationStep({
                       Via mobile money
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="text-sm text-gray-500">Recipient gets</div>
                     <div className="font-semibold text-lg">
                       {formatCurrency(feeCalculation.amount_sats / 100000000, 'BTC')}
@@ -140,24 +140,24 @@ export function ConfirmationStep({
           <Separator />
 
           {/* Recipient Information */}
-          <div className="space-y-4">
+          <div className="space-y-6">
             <h3 className="font-semibold text-lg">
               {transactionType === 'btc_to_zmw' ? 'Recipient Information' : 'Payment Information'}
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {transactionType === 'btc_to_zmw' ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="text-sm text-gray-500">Mobile Money Number</div>
                   <div className="font-semibold">{recipientPhone}</div>
                 </div>
               ) : (
                 <>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="text-sm text-gray-500">Your Phone Number</div>
                     <div className="font-semibold">{senderPhone}</div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="text-sm text-gray-500">Lightning Address</div>
                     <div className="font-semibold break-all">{recipientLightning}</div>
                   </div>
@@ -169,10 +169,10 @@ export function ConfirmationStep({
           <Separator />
 
           {/* Fee Breakdown */}
-          <div className="space-y-4">
+          <div className="space-y-6">
             <h3 className="font-semibold text-lg">Fee Breakdown</h3>
             
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Amount</span>
                 <div className="text-right">
@@ -221,9 +221,9 @@ export function ConfirmationStep({
           <Separator />
 
           {/* Exchange Rate & Delivery Time */}
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-3">
                 <div className="text-sm text-gray-500">Exchange Rate</div>
                 <div className="font-medium">
                   1 BTC = {new Intl.NumberFormat('en-ZM', {
@@ -233,7 +233,7 @@ export function ConfirmationStep({
                   }).format(feeCalculation.exchange_rate)}
                 </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="text-sm text-gray-500">Estimated Delivery</div>
                 <div className="font-medium flex items-center">
                   <Clock className="h-4 w-4 mr-1 text-blue-500" />
@@ -244,11 +244,11 @@ export function ConfirmationStep({
           </div>
 
           {/* Important Notice */}
-          <div className="bg-amber-50 p-4 rounded-lg">
-            <div className="flex items-start space-x-2">
-              <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+          <div className="bg-amber-50 p-6 rounded-lg">
+            <div className="flex items-start space-x-3">
+              <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
               <div className="text-sm text-amber-800">
-                <div className="font-medium mb-1">Important Notice</div>
+                <div className="font-medium mb-2">Important Notice</div>
                 <div>
                   {transactionType === 'btc_to_zmw' 
                     ? 'Once you pay the Lightning invoice, the transaction cannot be reversed. Please ensure all details are correct.'
@@ -262,12 +262,12 @@ export function ConfirmationStep({
       </Card>
 
       {/* Action Buttons */}
-      <div className="flex space-x-4">
+      <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
         <Button
           variant="outline"
           onClick={onBack}
           disabled={loading}
-          className="flex-1"
+          className="flex-1 h-12"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Edit
@@ -276,7 +276,7 @@ export function ConfirmationStep({
         <Button
           onClick={onConfirm}
           disabled={loading}
-          className="flex-1"
+          className="flex-1 h-12 bg-orange-500 hover:bg-orange-600 text-white font-semibold"
         >
           {loading ? (
             "Processing..."

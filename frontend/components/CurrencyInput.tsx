@@ -102,7 +102,7 @@ export function CurrencyInput({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <Label htmlFor={id} className={error ? "text-red-600" : ""}>
         {label}
         {required && <span className="text-red-500 ml-1">*</span>}
@@ -118,7 +118,7 @@ export function CurrencyInput({
           onBlur={handleBlur}
           min={min}
           step={getStep()}
-          className={`pl-10 ${error ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''} ${className}`}
+          className={`pl-10 h-12 ${error ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''} ${className}`}
           required={required}
         />
         {error && (

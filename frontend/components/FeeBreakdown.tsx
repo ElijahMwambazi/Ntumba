@@ -44,8 +44,8 @@ export function FeeBreakdown({
       <CardHeader>
         <CardTitle className="text-lg">Transaction Summary</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-3">
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
           <div className="flex justify-between items-center">
             <span className="text-gray-600">Amount</span>
             <div className="text-right">
@@ -85,7 +85,7 @@ export function FeeBreakdown({
         </div>
 
         {exchangeRate && (
-          <div className="pt-3 border-t">
+          <div className="pt-4 border-t">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Exchange Rate</span>
               <span>1 BTC = {new Intl.NumberFormat('en-ZM', {
@@ -98,22 +98,22 @@ export function FeeBreakdown({
         )}
 
         {estimatedDeliveryTime && (
-          <div className="bg-blue-50 p-3 rounded-lg">
-            <div className="flex items-start space-x-2">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <div className="flex items-start space-x-3">
               <Clock className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
               <div>
                 <div className="text-sm font-medium text-blue-900">Delivery Time</div>
-                <div className="text-sm text-blue-700">{estimatedDeliveryTime}</div>
+                <div className="text-sm text-blue-700 mt-1">{estimatedDeliveryTime}</div>
               </div>
             </div>
           </div>
         )}
 
-        <div className="bg-gray-50 p-3 rounded-lg">
-          <div className="flex items-start space-x-2">
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <div className="flex items-start space-x-3">
             <Info className="h-4 w-4 text-gray-600 mt-0.5 flex-shrink-0" />
             <div className="text-sm text-gray-600">
-              <div className="font-medium mb-1">Fee Information</div>
+              <div className="font-medium mb-2">Fee Information</div>
               <div>
                 Service fee is 1.5% with a minimum of 5 ZMW and maximum of 500 ZMW. 
                 This covers exchange processing and network fees.

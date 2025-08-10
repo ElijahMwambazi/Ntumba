@@ -16,10 +16,11 @@ export function Header() {
             <span className="text-xl font-bold text-gray-900">Ntumba</span>
           </Link>
 
-          <nav className="flex items-center space-x-4">
+          <nav className="flex items-center space-x-2">
             <Button
               variant={isActive('/btc-to-zmw') ? 'default' : 'ghost'}
               asChild
+              className={isActive('/btc-to-zmw') ? 'bg-orange-500 hover:bg-orange-600' : ''}
             >
               <Link to="/btc-to-zmw" className="flex items-center space-x-2">
                 <ArrowLeftRight className="h-4 w-4" />
@@ -30,6 +31,7 @@ export function Header() {
             <Button
               variant={isActive('/zmw-to-btc') ? 'default' : 'ghost'}
               asChild
+              className={isActive('/zmw-to-btc') ? 'bg-orange-500 hover:bg-orange-600' : ''}
             >
               <Link to="/zmw-to-btc" className="flex items-center space-x-2">
                 <ArrowLeftRight className="h-4 w-4 rotate-180" />

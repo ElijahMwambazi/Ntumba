@@ -136,53 +136,53 @@ export function DualCurrencyInput({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="relative">
-        <div className="space-y-2">
+        <div className="space-y-3">
           <CurrencyInput
             id="zmw-amount"
             label="Amount (ZMW)"
             currency="ZMW"
             value={localZmwAmount}
             onChange={handleZmwChange}
-            className={activeField === 'zmw' ? 'ring-2 ring-blue-500' : ''}
+            className={activeField === 'zmw' ? 'ring-2 ring-orange-500' : ''}
             required
           />
           {activeField === 'zmw' && (
-            <div className="text-xs text-blue-600 font-medium">Active field</div>
+            <div className="text-xs text-orange-600 font-medium">Active field</div>
           )}
         </div>
 
-        <div className="flex justify-center my-2">
+        <div className="flex justify-center my-4">
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={swapFields}
-            className="rounded-full p-2"
+            className="rounded-full p-2 h-10 w-10"
           >
             <ArrowUpDown className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           <CurrencyInput
             id="btc-amount"
             label="Amount (BTC)"
             currency="BTC"
             value={localBtcAmount}
             onChange={handleBtcChange}
-            className={activeField === 'btc' ? 'ring-2 ring-blue-500' : ''}
+            className={activeField === 'btc' ? 'ring-2 ring-orange-500' : ''}
             step="0.00000001"
           />
           {activeField === 'btc' && (
-            <div className="text-xs text-blue-600 font-medium">Active field</div>
+            <div className="text-xs text-orange-600 font-medium">Active field</div>
           )}
         </div>
       </div>
 
       {exchangeRate && (localZmwAmount || localBtcAmount) && !feeCalculation && (
-        <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+        <div className="text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
           <div className="flex justify-between">
             <span>Exchange Rate:</span>
             <span>1 BTC = {new Intl.NumberFormat('en-ZM', {
@@ -192,7 +192,7 @@ export function DualCurrencyInput({
             }).format(exchangeRate)}</span>
           </div>
           {localZmwAmount && parseFloat(localZmwAmount) > 0 && (
-            <div className="flex justify-between mt-1">
+            <div className="flex justify-between mt-2">
               <span>You're sending:</span>
               <span className="font-medium">
                 {formatZmwDisplay(localZmwAmount)} ZMW ≈ {formatBtcDisplay(localBtcAmount)} BTC
@@ -203,7 +203,7 @@ export function DualCurrencyInput({
       )}
 
       {calculatingFees && (
-        <div className="flex items-center justify-center p-4 bg-gray-50 rounded-lg">
+        <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg">
           <Calculator className="h-4 w-4 animate-pulse mr-2" />
           <span className="text-sm text-gray-600">Calculating fees...</span>
         </div>
