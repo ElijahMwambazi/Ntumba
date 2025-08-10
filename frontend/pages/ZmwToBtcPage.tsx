@@ -1,16 +1,18 @@
 import { useState } from 'react';
-import { ArrowRight, Zap } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { TransactionStatus } from '../components/TransactionStatus';
 import { ExchangeRateDisplay } from '../components/ExchangeRateDisplay';
 import { DualCurrencyInput } from '../components/DualCurrencyInput';
 import { PhoneInput } from '../components/PhoneInput';
+import { LightningAddressInput } from '../components/LightningAddressInput';
 import { FeeBreakdown } from '../components/FeeBreakdown';
 import { ConfirmationStep } from '../components/ConfirmationStep';
+import { useRecentRecipients } from '../hooks/useRecentRecipients';
+import { useRecentLightningAddresses } from '../hooks/useRecentLightningAddresses';
 import backend from '~backend/client';
 
 interface CreateZmwToBtcResponse {
@@ -48,6 +50,8 @@ export function ZmwToBtcPage() {
   const [transaction, setTransaction] = useState<CreateZmwToBtcResponse | null>(null);
   const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
   const { toast } = useToast();
+  const { recentRecipients, addRecentRecipient } = useRecentRecipients();
+  const { recentAddresses, addRecentAddress } = useRecentLightningAddresses();
 
   const handleAmountChange = (zmw: number, btc: number) => {
     setZmwAmount(zmw > 0 ? zmw.toString() : '');
@@ -154,6 +158,11 @@ export function ZmwToBtcPage() {
       
       setTransaction(response);
       setCurrentStep('payment');
+      
+      // Save to recent lists
+      addRecentRecipient(senderPhone);
+      addRecentAddress(recipientLightning);
+      
       toast({
         title: "Transaction Created",
         description: "Please send the Kwacha from your mobile money account.",
@@ -322,34 +331,19 @@ export function ZmwToBtcPage() {
               value={senderPhone}
               onChange={setSenderPhone}
               required
+              recentNumbers={recentRecipients.map(r => r.phone)}
+              onSelectRecent={setSenderPhone}
             />
 
-            <div className="space-y-3">
-              <Label htmlFor="lightning" className={formErrors.lightning ? "text-red-600" : ""}>
-                Recipient Lightning Address
-                <span className="text-red-500 ml-1">*</span>
-              </Label>
-              <div className="relative">
-                <Zap className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  id="lightning"
-                  type="text"
-                  placeholder="user@wallet.com or Lightning invoice"
-                  value={recipientLightning}
-                  onChange={(e) => {
-                    setRecipientLightning(e.target.value);
-                    if (formErrors.lightning) {
-                      setFormErrors(prev => ({ ...prev, lightning: '' }));
-                    }
-                  }}
-                  className={`pl-10 h-12 ${formErrors.lightning ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
-                  required
-                />
-              </div>
-              {formErrors.lightning && (
-                <p className="text-sm text-red-600">{formErrors.lightning}</p>
-              )}
-            </div>
+            <LightningAddressInput
+              id="lightning"
+              label="Recipient Lightning Address"
+              value={recipientLightning}
+              onChange={setRecipientLightning}
+              required
+              recentAddresses={recentAddresses.map(a => a.address)}
+              onSelectRecent={setRecipientLightning}
+            />
 
             <DualCurrencyInput
               exchangeRate={exchangeRate}

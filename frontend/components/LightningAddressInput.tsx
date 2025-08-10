@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Phone, AlertCircle, Clock, X } from 'lucide-react';
+import { Zap, AlertCircle, Clock, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
-interface PhoneInputProps {
+interface LightningAddressInputProps {
   id: string;
   label: string;
   placeholder?: string;
@@ -13,124 +13,97 @@ interface PhoneInputProps {
   onChange: (value: string) => void;
   required?: boolean;
   className?: string;
-  recentNumbers?: string[];
-  onSelectRecent?: (phone: string) => void;
+  recentAddresses?: string[];
+  onSelectRecent?: (address: string) => void;
 }
 
-export function PhoneInput({ 
+export function LightningAddressInput({ 
   id, 
   label, 
-  placeholder = "+260 XXX XXX XXX", 
+  placeholder = "user@wallet.com or Lightning invoice", 
   value, 
   onChange, 
   required = false,
   className = "",
-  recentNumbers = [],
+  recentAddresses = [],
   onSelectRecent
-}: PhoneInputProps) {
+}: LightningAddressInputProps) {
   const [error, setError] = useState<string>("");
   const [touched, setTouched] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
 
-  const formatPhoneNumber = (input: string): string => {
-    // Remove all non-digit characters except +
-    const cleaned = input.replace(/[^\d+]/g, '');
-    
-    // Ensure it starts with +260
-    let formatted = cleaned;
-    if (!formatted.startsWith('+260')) {
-      if (formatted.startsWith('260')) {
-        formatted = '+' + formatted;
-      } else if (formatted.startsWith('0')) {
-        formatted = '+260' + formatted.slice(1);
-      } else if (formatted.match(/^\d/)) {
-        formatted = '+260' + formatted;
-      } else if (formatted === '+') {
-        formatted = '+260';
-      } else {
-        formatted = '+260';
-      }
-    }
-
-    // Format as +260 XXX XXX XXX
-    if (formatted.length > 4) {
-      const countryCode = formatted.slice(0, 4); // +260
-      const remaining = formatted.slice(4);
-      
-      if (remaining.length <= 3) {
-        formatted = `${countryCode} ${remaining}`;
-      } else if (remaining.length <= 6) {
-        formatted = `${countryCode} ${remaining.slice(0, 3)} ${remaining.slice(3)}`;
-      } else {
-        formatted = `${countryCode} ${remaining.slice(0, 3)} ${remaining.slice(3, 6)} ${remaining.slice(6, 9)}`;
-      }
-    }
-
-    return formatted;
-  };
-
-  const validatePhoneNumber = (phone: string): string => {
-    if (!phone && required) {
-      return "Phone number is required";
+  const validateLightningAddress = (address: string): string => {
+    if (!address && required) {
+      return "Lightning address or invoice is required";
     }
     
-    if (!phone) {
+    if (!address) {
       return "";
     }
-
-    // Remove formatting for validation
-    const cleaned = phone.replace(/[^\d+]/g, '');
     
-    if (!cleaned.startsWith('+260')) {
-      return "Phone number must start with +260";
-    }
+    // Lightning address format: user@domain.com
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     
-    if (cleaned.length !== 13) { // +260 + 9 digits
-      return "Phone number must be 9 digits after +260";
+    // Lightning invoice format: starts with ln
+    const invoiceRegex = /^ln[a-zA-Z0-9]+$/i;
+    
+    if (!emailRegex.test(address) && !invoiceRegex.test(address)) {
+      return "Please enter a valid Lightning address (user@domain.com) or invoice";
     }
     
     return "";
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatPhoneNumber(e.target.value);
-    onChange(formatted);
+    const newValue = e.target.value;
+    onChange(newValue);
     
     if (touched) {
-      setError(validatePhoneNumber(formatted));
+      setError(validateLightningAddress(newValue));
     }
   };
 
   const handleBlur = () => {
     setTouched(true);
-    setError(validatePhoneNumber(value));
+    setError(validateLightningAddress(value));
     setShowRecent(false);
   };
 
   const handleFocus = () => {
-    if (recentNumbers.length > 0 && !value) {
+    if (recentAddresses.length > 0 && !value) {
       setShowRecent(true);
     }
   };
 
-  const handleSelectRecent = (phone: string) => {
-    onChange(phone);
+  const handleSelectRecent = (address: string) => {
+    onChange(address);
     setShowRecent(false);
-    onSelectRecent?.(phone);
+    onSelectRecent?.(address);
     if (touched) {
-      setError(validatePhoneNumber(phone));
+      setError(validateLightningAddress(address));
     }
   };
 
-  const formatDisplayNumber = (phone: string) => {
-    // Remove country code for display
-    const withoutCountry = phone.replace('+260 ', '');
-    return withoutCountry;
+  const formatDisplayAddress = (address: string) => {
+    // Truncate long Lightning invoices for display
+    if (address.startsWith('ln') && address.length > 30) {
+      return `${address.slice(0, 15)}...${address.slice(-10)}`;
+    }
+    return address;
+  };
+
+  const getAddressType = (address: string) => {
+    if (address.includes('@')) {
+      return 'Lightning Address';
+    } else if (address.startsWith('ln')) {
+      return 'Invoice';
+    }
+    return 'Address';
   };
 
   useEffect(() => {
     if (touched) {
-      setError(validatePhoneNumber(value));
+      setError(validateLightningAddress(value));
     }
   }, [value, touched, required]);
 
@@ -141,10 +114,10 @@ export function PhoneInput({
         {required && <span className="text-red-500 ml-1">*</span>}
       </Label>
       <div className="relative">
-        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <Zap className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
         <Input
           id={id}
-          type="tel"
+          type="text"
           placeholder={placeholder}
           value={value}
           onChange={handleChange}
@@ -156,7 +129,7 @@ export function PhoneInput({
         {error && (
           <AlertCircle className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-red-500" />
         )}
-        {recentNumbers.length > 0 && !value && (
+        {recentAddresses.length > 0 && !value && (
           <Button
             type="button"
             variant="ghost"
@@ -169,11 +142,11 @@ export function PhoneInput({
         )}
       </div>
       
-      {showRecent && recentNumbers.length > 0 && (
+      {showRecent && recentAddresses.length > 0 && (
         <Card className="absolute top-full left-0 right-0 z-10 mt-1">
           <CardContent className="p-2">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-gray-500 font-medium">Recent Numbers</span>
+              <span className="text-xs text-gray-500 font-medium">Recent Addresses</span>
               <Button
                 type="button"
                 variant="ghost"
@@ -185,17 +158,22 @@ export function PhoneInput({
               </Button>
             </div>
             <div className="space-y-1">
-              {recentNumbers.map((phone, index) => (
+              {recentAddresses.map((address, index) => (
                 <Button
                   key={index}
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => handleSelectRecent(phone)}
-                  className="w-full justify-start h-8 px-2 text-sm"
+                  onClick={() => handleSelectRecent(address)}
+                  className="w-full justify-start h-auto px-2 py-2 text-sm"
                 >
-                  <Phone className="h-3 w-3 mr-2 text-gray-400" />
-                  {formatDisplayNumber(phone)}
+                  <div className="flex flex-col items-start w-full">
+                    <div className="flex items-center">
+                      <Zap className="h-3 w-3 mr-2 text-gray-400" />
+                      <span className="font-mono text-xs">{formatDisplayAddress(address)}</span>
+                    </div>
+                    <span className="text-xs text-gray-500 ml-5">{getAddressType(address)}</span>
+                  </div>
                 </Button>
               ))}
             </div>

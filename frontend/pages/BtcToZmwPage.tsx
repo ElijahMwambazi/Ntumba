@@ -12,6 +12,7 @@ import { DualCurrencyInput } from '../components/DualCurrencyInput';
 import { PhoneInput } from '../components/PhoneInput';
 import { FeeBreakdown } from '../components/FeeBreakdown';
 import { ConfirmationStep } from '../components/ConfirmationStep';
+import { useRecentRecipients } from '../hooks/useRecentRecipients';
 import backend from '~backend/client';
 
 interface CreateBtcToZmwResponse {
@@ -49,6 +50,7 @@ export function BtcToZmwPage() {
   const [transaction, setTransaction] = useState<CreateBtcToZmwResponse | null>(null);
   const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
   const { toast } = useToast();
+  const { recentRecipients, addRecentRecipient } = useRecentRecipients();
 
   const handleAmountChange = (zmw: number, btc: number) => {
     setZmwAmount(zmw > 0 ? zmw.toString() : '');
@@ -134,6 +136,10 @@ export function BtcToZmwPage() {
       
       setTransaction(response);
       setCurrentStep('payment');
+      
+      // Save recipient to recent list
+      addRecentRecipient(recipientPhone);
+      
       toast({
         title: "Transaction Created",
         description: "Please pay the Lightning invoice to complete the transaction.",
@@ -317,6 +323,8 @@ export function BtcToZmwPage() {
               value={recipientPhone}
               onChange={setRecipientPhone}
               required
+              recentNumbers={recentRecipients.map(r => r.phone)}
+              onSelectRecent={setRecipientPhone}
             />
 
             <DualCurrencyInput
