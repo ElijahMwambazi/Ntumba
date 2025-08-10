@@ -285,7 +285,11 @@ export function BtcToZmwPage() {
           </CardContent>
         </Card>
 
-        <TransactionStatus transactionId={transaction.transaction_id} />
+        <TransactionStatus 
+          transactionId={transaction.transaction_id}
+          exchangeRate={transaction.exchange_rate}
+          recipientInfo={{ phone: recipientPhone }}
+        />
 
         <div className="text-center">
           <Button variant="outline" onClick={resetForm} className="h-12 px-8">

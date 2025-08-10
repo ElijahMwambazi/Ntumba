@@ -1,23 +1,50 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle, Clock, XCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Loader2, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ReceiptModal } from './ReceiptModal';
 import backend from '~backend/client';
 import type { Transaction } from '~backend/exchange/types';
 
 interface TransactionStatusProps {
   transactionId: string;
+  exchangeRate?: number;
+  recipientInfo?: {
+    phone?: string;
+    lightning_address?: string;
+    lightning_invoice?: string;
+  };
+  senderInfo?: {
+    phone?: string;
+  };
 }
 
-export function TransactionStatus({ transactionId }: TransactionStatusProps) {
+export function TransactionStatus({ 
+  transactionId, 
+  exchangeRate,
+  recipientInfo,
+  senderInfo 
+}: TransactionStatusProps) {
   const [transaction, setTransaction] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [hasShownSuccessPrompt, setHasShownSuccessPrompt] = useState(false);
 
   useEffect(() => {
     const fetchTransaction = async () => {
       try {
         const response = await backend.exchange.getTransaction({ id: transactionId });
         setTransaction(response);
+        
+        // Show receipt prompt when transaction completes for the first time
+        if (response.status === 'completed' && !hasShownSuccessPrompt) {
+          setHasShownSuccessPrompt(true);
+          // Small delay to let the user see the completion status first
+          setTimeout(() => {
+            setShowReceiptModal(true);
+          }, 1000);
+        }
       } catch (error) {
         console.error('Failed to fetch transaction:', error);
       } finally {
@@ -35,7 +62,7 @@ export function TransactionStatus({ transactionId }: TransactionStatusProps) {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [transactionId, transaction?.status]);
+  }, [transactionId, transaction?.status, hasShownSuccessPrompt]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -62,6 +89,23 @@ export function TransactionStatus({ transactionId }: TransactionStatusProps) {
         return 'secondary' as const;
       default:
         return 'outline' as const;
+    }
+  };
+
+  const getStatusMessage = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return 'Waiting for payment...';
+      case 'processing':
+        return 'Processing payment...';
+      case 'completed':
+        return 'Transaction completed successfully!';
+      case 'failed':
+        return 'Transaction failed. Please try again.';
+      case 'cancelled':
+        return 'Transaction was cancelled.';
+      default:
+        return 'Unknown status';
     }
   };
 
@@ -95,60 +139,70 @@ export function TransactionStatus({ transactionId }: TransactionStatusProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Transaction Status</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            {getStatusIcon(transaction.status)}
-            <Badge variant={getStatusVariant(transaction.status)}>
-              {transaction.status.toUpperCase()}
-            </Badge>
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Transaction Status</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              {getStatusIcon(transaction.status)}
+              <Badge variant={getStatusVariant(transaction.status)}>
+                {transaction.status.toUpperCase()}
+              </Badge>
+            </div>
+            <div className="text-sm text-gray-500">
+              ID: {transaction.id.slice(0, 8)}...
+            </div>
           </div>
-          <div className="text-sm text-gray-500">
-            ID: {transaction.id.slice(0, 8)}...
-          </div>
-        </div>
 
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-500">Created:</span>
-            <span>{new Date(transaction.created_at).toLocaleString()}</span>
-          </div>
-          {transaction.completed_at && (
+          <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-500">Completed:</span>
-              <span>{new Date(transaction.completed_at).toLocaleString()}</span>
+              <span className="text-gray-500">Created:</span>
+              <span>{new Date(transaction.created_at).toLocaleString()}</span>
+            </div>
+            {transaction.completed_at && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">Completed:</span>
+                <span>{new Date(transaction.completed_at).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+
+          <div className={`text-sm ${
+            transaction.status === 'completed' ? 'text-green-600' :
+            transaction.status === 'failed' || transaction.status === 'cancelled' ? 'text-red-600' :
+            'text-blue-600'
+          }`}>
+            {getStatusMessage(transaction.status)}
+          </div>
+
+          {transaction.status === 'completed' && (
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => setShowReceiptModal(true)}
+                variant="outline"
+                className="w-full h-10"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Download Receipt
+              </Button>
             </div>
           )}
-        </div>
+        </CardContent>
+      </Card>
 
-        {transaction.status === 'pending' && (
-          <div className="text-sm text-blue-600">
-            Waiting for payment...
-          </div>
-        )}
-
-        {transaction.status === 'processing' && (
-          <div className="text-sm text-blue-600">
-            Processing payment...
-          </div>
-        )}
-
-        {transaction.status === 'completed' && (
-          <div className="text-sm text-green-600">
-            Transaction completed successfully!
-          </div>
-        )}
-
-        {transaction.status === 'failed' && (
-          <div className="text-sm text-red-600">
-            Transaction failed. Please try again.
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      {transaction && exchangeRate && (
+        <ReceiptModal
+          isOpen={showReceiptModal}
+          onClose={() => setShowReceiptModal(false)}
+          transaction={transaction}
+          exchangeRate={exchangeRate}
+          recipientInfo={recipientInfo}
+          senderInfo={senderInfo}
+        />
+      )}
+    </>
   );
 }
