@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Bitcoin, ArrowLeftRight } from 'lucide-react';
+import { Bitcoin, ArrowLeftRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function Header() {
@@ -27,6 +27,12 @@ export function Header() {
                 <span>BTC → ZMW</span>
               </Link>
             </Button>
+
+            <div className="hidden md:flex items-center text-gray-400 mx-2">
+              <ChevronLeft className="h-4 w-4" />
+              <span className="text-xs mx-1">scroll</span>
+              <ChevronRight className="h-4 w-4" />
+            </div>
 
             <Button
               variant={isActive('/zmw-to-btc') ? 'default' : 'ghost'}

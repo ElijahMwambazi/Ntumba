@@ -2,8 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Toaster } from '@/components/ui/toaster';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
-import { BtcToZmwPage } from './pages/BtcToZmwPage';
-import { ZmwToBtcPage } from './pages/ZmwToBtcPage';
+import { CurrencyModeContainer } from './components/CurrencyModeContainer';
 
 export default function App() {
   return (
@@ -13,8 +12,8 @@ export default function App() {
         <main className="container mx-auto px-4 py-8 flex-1">
           <Routes>
             <Route path="/" element={<Navigate to="/btc-to-zmw" replace />} />
-            <Route path="/btc-to-zmw" element={<BtcToZmwPage />} />
-            <Route path="/zmw-to-btc" element={<ZmwToBtcPage />} />
+            <Route path="/btc-to-zmw" element={<CurrencyModeContainer initialMode="btc-to-zmw" />} />
+            <Route path="/zmw-to-btc" element={<CurrencyModeContainer initialMode="zmw-to-btc" />} />
           </Routes>
         </main>
         <Footer />
