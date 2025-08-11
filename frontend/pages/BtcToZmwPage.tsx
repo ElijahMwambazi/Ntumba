@@ -12,7 +12,9 @@ import { DualCurrencyInput } from '../components/DualCurrencyInput';
 import { PhoneInput } from '../components/PhoneInput';
 import { FeeBreakdown } from '../components/FeeBreakdown';
 import { ConfirmationStep } from '../components/ConfirmationStep';
+import { QuickFillCard } from '../components/QuickFillCard';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
+import { useRecentTransactions } from '../hooks/useRecentTransactions';
 import backend from '~backend/client';
 
 interface CreateBtcToZmwResponse {
@@ -51,6 +53,14 @@ export function BtcToZmwPage() {
   const [formErrors, setFormErrors] = useState<{[key: string]: string}>({});
   const { toast } = useToast();
   const { recentRecipients, addRecentRecipient } = useRecentRecipients();
+  const { 
+    recentTransactions, 
+    addRecentTransaction, 
+    clearRecentTransactions,
+    getTransactionsForType 
+  } = useRecentTransactions();
+
+  const btcToZmwTransactions = getTransactionsForType('btc_to_zmw');
 
   const handleAmountChange = (zmw: number, btc: number) => {
     setZmwAmount(zmw > 0 ? zmw.toString() : '');
@@ -64,6 +74,30 @@ export function BtcToZmwPage() {
 
   const handleFeeCalculationUpdate = (calculation: FeeCalculation | null) => {
     setFeeCalculation(calculation);
+  };
+
+  const handleQuickFill = (recentTransaction: any) => {
+    setRecipientPhone(recentTransaction.recipient_phone || '');
+    setZmwAmount(recentTransaction.amount_zmw.toString());
+    
+    // Calculate BTC amount based on current exchange rate
+    if (exchangeRate) {
+      const btc = recentTransaction.amount_zmw / exchangeRate;
+      setBtcAmount(btc.toString());
+    }
+
+    toast({
+      title: "Form filled",
+      description: "Transaction details have been filled from your recent history.",
+    });
+  };
+
+  const handleClearHistory = () => {
+    clearRecentTransactions();
+    toast({
+      title: "History cleared",
+      description: "All recent transactions have been removed.",
+    });
   };
 
   const validateForm = (): boolean => {
@@ -195,6 +229,19 @@ export function BtcToZmwPage() {
     setFormErrors({});
   };
 
+  // Handle successful transaction completion
+  const handleTransactionComplete = (completedTransaction: any) => {
+    if (completedTransaction.status === 'completed' && exchangeRate) {
+      addRecentTransaction({
+        id: completedTransaction.id,
+        type: 'btc_to_zmw',
+        amount_zmw: parseFloat(zmwAmount),
+        recipient_phone: recipientPhone,
+        exchange_rate: exchangeRate
+      });
+    }
+  };
+
   // Confirmation Step
   if (currentStep === 'confirm' && feeCalculation) {
     return (
@@ -289,6 +336,7 @@ export function BtcToZmwPage() {
           transactionId={transaction.transaction_id}
           exchangeRate={transaction.exchange_rate}
           recipientInfo={{ phone: recipientPhone }}
+          onTransactionUpdate={handleTransactionComplete}
         />
 
         <div className="text-center">
@@ -311,6 +359,14 @@ export function BtcToZmwPage() {
       </div>
 
       <ExchangeRateDisplay onRateUpdate={setExchangeRate} />
+
+      {btcToZmwTransactions.length > 0 && (
+        <QuickFillCard
+          transactions={btcToZmwTransactions}
+          onQuickFill={handleQuickFill}
+          onClearHistory={handleClearHistory}
+        />
+      )}
 
       <Card>
         <CardHeader>

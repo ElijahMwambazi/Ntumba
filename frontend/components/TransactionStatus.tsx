@@ -18,13 +18,15 @@ interface TransactionStatusProps {
   senderInfo?: {
     phone?: string;
   };
+  onTransactionUpdate?: (transaction: Transaction) => void;
 }
 
 export function TransactionStatus({ 
   transactionId, 
   exchangeRate,
   recipientInfo,
-  senderInfo 
+  senderInfo,
+  onTransactionUpdate
 }: TransactionStatusProps) {
   const [transaction, setTransaction] = useState<Transaction | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,6 +38,11 @@ export function TransactionStatus({
       try {
         const response = await backend.exchange.getTransaction({ id: transactionId });
         setTransaction(response);
+        
+        // Notify parent component of transaction updates
+        if (onTransactionUpdate) {
+          onTransactionUpdate(response);
+        }
         
         // Show receipt prompt when transaction completes for the first time
         if (response.status === 'completed' && !hasShownSuccessPrompt) {
@@ -62,7 +69,7 @@ export function TransactionStatus({
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [transactionId, transaction?.status, hasShownSuccessPrompt]);
+  }, [transactionId, transaction?.status, hasShownSuccessPrompt, onTransactionUpdate]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {

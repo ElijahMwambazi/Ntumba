@@ -11,8 +11,10 @@ import { PhoneInput } from '../components/PhoneInput';
 import { LightningAddressInput } from '../components/LightningAddressInput';
 import { FeeBreakdown } from '../components/FeeBreakdown';
 import { ConfirmationStep } from '../components/ConfirmationStep';
+import { QuickFillCard } from '../components/QuickFillCard';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
 import { useRecentLightningAddresses } from '../hooks/useRecentLightningAddresses';
+import { useRecentTransactions } from '../hooks/useRecentTransactions';
 import backend from '~backend/client';
 
 interface CreateZmwToBtcResponse {
@@ -52,6 +54,14 @@ export function ZmwToBtcPage() {
   const { toast } = useToast();
   const { recentRecipients, addRecentRecipient } = useRecentRecipients();
   const { recentAddresses, addRecentAddress } = useRecentLightningAddresses();
+  const { 
+    recentTransactions, 
+    addRecentTransaction, 
+    clearRecentTransactions,
+    getTransactionsForType 
+  } = useRecentTransactions();
+
+  const zmwToBtcTransactions = getTransactionsForType('zmw_to_btc');
 
   const handleAmountChange = (zmw: number, btc: number) => {
     setZmwAmount(zmw > 0 ? zmw.toString() : '');
@@ -65,6 +75,31 @@ export function ZmwToBtcPage() {
 
   const handleFeeCalculationUpdate = (calculation: FeeCalculation | null) => {
     setFeeCalculation(calculation);
+  };
+
+  const handleQuickFill = (recentTransaction: any) => {
+    setSenderPhone(recentTransaction.sender_phone || '');
+    setRecipientLightning(recentTransaction.lightning_address || recentTransaction.lightning_invoice || '');
+    setZmwAmount(recentTransaction.amount_zmw.toString());
+    
+    // Calculate BTC amount based on current exchange rate
+    if (exchangeRate) {
+      const btc = recentTransaction.amount_zmw / exchangeRate;
+      setBtcAmount(btc.toString());
+    }
+
+    toast({
+      title: "Form filled",
+      description: "Transaction details have been filled from your recent history.",
+    });
+  };
+
+  const handleClearHistory = () => {
+    clearRecentTransactions();
+    toast({
+      title: "History cleared",
+      description: "All recent transactions have been removed.",
+    });
   };
 
   const validateLightningAddress = (address: string): boolean => {
@@ -209,6 +244,21 @@ export function ZmwToBtcPage() {
     setFormErrors({});
   };
 
+  // Handle successful transaction completion
+  const handleTransactionComplete = (completedTransaction: any) => {
+    if (completedTransaction.status === 'completed' && exchangeRate) {
+      addRecentTransaction({
+        id: completedTransaction.id,
+        type: 'zmw_to_btc',
+        amount_zmw: parseFloat(zmwAmount),
+        sender_phone: senderPhone,
+        lightning_address: recipientLightning.includes('@') ? recipientLightning : undefined,
+        lightning_invoice: recipientLightning.startsWith('ln') ? recipientLightning : undefined,
+        exchange_rate: exchangeRate
+      });
+    }
+  };
+
   // Confirmation Step
   if (currentStep === 'confirm' && feeCalculation) {
     return (
@@ -298,6 +348,7 @@ export function ZmwToBtcPage() {
           exchangeRate={transaction.exchange_rate}
           recipientInfo={{ lightning_address: recipientLightning }}
           senderInfo={{ phone: senderPhone }}
+          onTransactionUpdate={handleTransactionComplete}
         />
 
         <div className="text-center">
@@ -320,6 +371,14 @@ export function ZmwToBtcPage() {
       </div>
 
       <ExchangeRateDisplay onRateUpdate={setExchangeRate} />
+
+      {zmwToBtcTransactions.length > 0 && (
+        <QuickFillCard
+          transactions={zmwToBtcTransactions}
+          onQuickFill={handleQuickFill}
+          onClearHistory={handleClearHistory}
+        />
+      )}
 
       <Card>
         <CardHeader>
