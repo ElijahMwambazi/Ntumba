@@ -8,11 +8,15 @@
   "engines": {
     "node": "24.18.0"
   },
+  "resolutions": {
+    "@fastify/static": "10.1.2"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
+    "audit:dependencies": "yarn npm audit --all --recursive --severity high",
     "build": "yarn workspaces foreach -At --topological-dev run build",
     "check": "yarn lint && yarn typecheck && yarn test && yarn build",
     "db:generate": "yarn workspace @ntumba/database db:generate",
@@ -27,7 +31,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.5",
     "@playwright/test": "1.62.0",
-    "concurrently": "9.2.1",
+    "concurrently": "9.2.4",
     "typescript": "7.0.2"
   }
 }

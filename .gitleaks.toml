@@ -1,0 +1,15 @@
+title = "Ntumba Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic idempotency fixtures in payment tests"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexes = [
+  '''^(?:0123456789abcdef|fedcba9876543210)$''',
+]
+paths = [
+  '''^(?:apps/server/src/(?:app|payment-store)|packages/providers/src/fakes)\.test\.ts$''',
+]

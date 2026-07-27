@@ -40,3 +40,17 @@ the fragment.
 Before real funds: complete provider security review, callback fixtures, penetration testing,
 dependency/secret scanning, privacy review, data-retention decision, incident exercises and
 qualified Zambian legal/regulatory review.
+
+## Automated scanning
+
+- `yarn audit:dependencies` checks every workspace and transitive package against the npm advisory
+  registry and fails for high or critical findings.
+- GitHub Actions runs the dependency audit and a redacted Gitleaks full-history scan on pushes,
+  pull requests, manual dispatches and a weekly schedule.
+- The security workflow has read-only repository contents permission. Gitleaks is pinned to an
+  immutable action commit and does not post pull-request comments or upload findings as artifacts.
+- `.gitleaks.toml` extends the default rules. Its only allowlist requires both an exact deterministic
+  idempotency fixture value and one of three named payment test files; test directories are not
+  excluded wholesale.
+- GitHub-native secret scanning should also be enabled in repository settings if the repository's
+  visibility and plan support it.

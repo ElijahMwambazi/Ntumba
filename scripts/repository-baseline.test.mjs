@@ -65,4 +65,24 @@ assert.ok(
   "Playwright must be ready before end-to-end tests",
 );
 
+const securityWorkflow = await readFile(
+  new URL("../.github/workflows/security.yml", import.meta.url),
+  "utf8",
+);
+assert.match(securityWorkflow, /permissions:\s*\n\s*contents:\s*read/);
+assert.match(securityWorkflow, /yarn audit:dependencies/);
+assert.match(securityWorkflow, /fetch-depth:\s*0/);
+assert.match(
+  securityWorkflow,
+  /gitleaks\/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7/,
+);
+assert.match(securityWorkflow, /GITLEAKS_VERSION:\s*"8\.30\.1"/);
+assert.doesNotMatch(securityWorkflow, /pull-requests:\s*write/);
+assert.equal(
+  packageJson.scripts["audit:dependencies"],
+  "yarn npm audit --all --recursive --severity high",
+);
+assert.equal(packageJson.resolutions["@fastify/static"], "10.1.2");
+assert.equal(packageJson.devDependencies.concurrently, "9.2.4");
+
 console.log("Repository baseline checks passed.");

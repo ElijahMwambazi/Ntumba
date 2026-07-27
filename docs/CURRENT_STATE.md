@@ -27,6 +27,8 @@
 - Clean development migration baseline replacing the obsolete recipient/payout schema.
 - GitHub Actions workflow pinned through `.nvmrc` to Node 24.18.0, with immutable Yarn installation,
   the complete repository check and Chromium Playwright coverage.
+- Automated weekly/push/pull-request security workflow with a high-severity full dependency audit
+  and redacted full-history secret scanning under read-only repository permissions.
 - Focused non-custodial architecture checks and unit/API/web tests.
 - Playwright coverage for creation, sharing, payer choice, expiry, direct-payment wording,
   local settings/clear-data behavior, storage fallback and mobile/desktop layouts.

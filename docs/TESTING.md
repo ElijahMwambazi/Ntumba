@@ -25,6 +25,7 @@ yarn test
 yarn build
 yarn check
 yarn test:e2e
+yarn audit:dependencies
 ```
 
 `yarn db:generate` validates the Drizzle model and migration generation. Applying the migration
@@ -36,6 +37,10 @@ GitHub Actions reads Node 24.18.0 from `.nvmrc`, enables the repository-pinned Y
 Corepack, restores only Yarn's project-local package cache and installs with `--immutable`. The CI
 job then runs `yarn check`, installs Chromium and its runner dependencies, and runs the complete
 Playwright suite with `yarn test:e2e`.
+
+The separate security workflow runs the full dependency audit and redacted Gitleaks history scan on
+pushes, pull requests, manual dispatches and weekly. Run `yarn audit:dependencies` locally before
+changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require security review.
 
 ## Required scenarios
 
