@@ -30,6 +30,13 @@ yarn test:e2e
 `yarn db:generate` validates the Drizzle model and migration generation. Applying the migration
 requires a known development PostgreSQL database.
 
+## Continuous integration
+
+GitHub Actions reads Node 24.18.0 from `.nvmrc`, enables the repository-pinned Yarn through
+Corepack, restores only Yarn's project-local package cache and installs with `--immutable`. The CI
+job then runs `yarn check`, installs Chromium and its runner dependencies, and runs the complete
+Playwright suite with `yarn test:e2e`.
+
 ## Required scenarios
 
 - Quote requests do not require or return merchant personal data.

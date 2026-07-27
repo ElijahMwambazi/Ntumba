@@ -9,6 +9,8 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Add reproducible build, type-check, lint and test commands.
 - [x] Add product, architecture, privacy, security and operations documents.
 - [ ] Run the entire build and test suite under pinned Node 24.18.0 in CI.
+  - [x] Configure GitHub Actions to run `yarn check` and Playwright under the pinned toolchain.
+  - [ ] Confirm the first successful GitHub Actions run after the workflow is pushed.
 - [ ] Add automated dependency and secret scanning.
 
 ## Phase 1 — Accountless non-custodial core

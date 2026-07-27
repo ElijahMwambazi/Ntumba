@@ -43,3 +43,9 @@ jobs:
 
       - name: Validate
         run: yarn check
+
+      - name: Install Playwright Chromium
+        run: yarn playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        run: yarn test:e2e

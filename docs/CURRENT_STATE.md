@@ -25,6 +25,8 @@
 - Normalized provider-event schema with no raw callback body.
 - Expiry/purge timestamps, opportunistic purge and hourly pg-boss purge job.
 - Clean development migration baseline replacing the obsolete recipient/payout schema.
+- GitHub Actions workflow pinned through `.nvmrc` to Node 24.18.0, with immutable Yarn installation,
+  the complete repository check and Chromium Playwright coverage.
 - Focused non-custodial architecture checks and unit/API/web tests.
 - Playwright coverage for creation, sharing, payer choice, expiry, direct-payment wording,
   local settings/clear-data behavior, storage fallback and mobile/desktop layouts.

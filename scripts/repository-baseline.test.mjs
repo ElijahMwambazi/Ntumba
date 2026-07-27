@@ -36,6 +36,7 @@ assert.ok(lockfiles[0]?.endsWith("yarn.lock"), "the sole lockfile must be yarn.l
 const ciWorkflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 assert.match(ciWorkflow, /actions\/checkout@v6/);
 assert.match(ciWorkflow, /actions\/setup-node@v6/);
+assert.match(ciWorkflow, /node-version-file:\s*\.nvmrc/);
 assert.match(ciWorkflow, /package-manager-cache:\s*false/);
 assert.doesNotMatch(ciWorkflow, /cache:\s*yarn/);
 assert.match(ciWorkflow, /actions\/cache@v5/);
@@ -45,11 +46,20 @@ const setupNodeIndex = ciWorkflow.indexOf("actions/setup-node@v6");
 const corepackIndex = ciWorkflow.indexOf("corepack enable");
 const yarnVersionIndex = ciWorkflow.indexOf("yarn --version");
 const yarnInstallIndex = ciWorkflow.indexOf("yarn install --immutable");
+const playwrightInstallIndex = ciWorkflow.indexOf("yarn playwright install --with-deps chromium");
+const yarnCheckIndex = ciWorkflow.indexOf("yarn check");
+const endToEndIndex = ciWorkflow.indexOf("yarn test:e2e");
 assert.ok(setupNodeIndex < corepackIndex, "Corepack must be enabled after the pinned Node setup");
 assert.ok(corepackIndex < yarnVersionIndex, "Corepack must be enabled before invoking Yarn");
 assert.ok(
   corepackIndex < yarnInstallIndex,
   "Corepack must be enabled before installing dependencies",
 );
+assert.ok(
+  yarnInstallIndex < yarnCheckIndex,
+  "Dependencies must be installed before repository validation",
+);
+assert.ok(yarnCheckIndex < playwrightInstallIndex, "Validation must pass before browser setup");
+assert.ok(playwrightInstallIndex < endToEndIndex, "Playwright must be ready before end-to-end tests");
 
 console.log("Repository baseline checks passed.");
