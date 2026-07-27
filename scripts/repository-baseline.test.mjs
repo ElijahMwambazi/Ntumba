@@ -33,4 +33,23 @@ const lockfiles = await findLockfiles(root.pathname);
 assert.equal(lockfiles.length, 1, `expected one lockfile, found: ${lockfiles.join(", ")}`);
 assert.ok(lockfiles[0]?.endsWith("yarn.lock"), "the sole lockfile must be yarn.lock");
 
+const ciWorkflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+assert.match(ciWorkflow, /actions\/checkout@v6/);
+assert.match(ciWorkflow, /actions\/setup-node@v6/);
+assert.match(ciWorkflow, /package-manager-cache:\s*false/);
+assert.doesNotMatch(ciWorkflow, /cache:\s*yarn/);
+assert.match(ciWorkflow, /actions\/cache@v5/);
+assert.match(ciWorkflow, /path:\s*\.yarn\/cache/);
+
+const setupNodeIndex = ciWorkflow.indexOf("actions/setup-node@v6");
+const corepackIndex = ciWorkflow.indexOf("corepack enable");
+const yarnVersionIndex = ciWorkflow.indexOf("yarn --version");
+const yarnInstallIndex = ciWorkflow.indexOf("yarn install --immutable");
+assert.ok(setupNodeIndex < corepackIndex, "Corepack must be enabled after the pinned Node setup");
+assert.ok(corepackIndex < yarnVersionIndex, "Corepack must be enabled before invoking Yarn");
+assert.ok(
+  corepackIndex < yarnInstallIndex,
+  "Corepack must be enabled before installing dependencies",
+);
+
 console.log("Repository baseline checks passed.");
