@@ -95,14 +95,11 @@ a {
 }
 
 .brand-mark {
-  align-items: center;
-  background: var(--text);
   border-radius: 11px;
-  color: var(--primary);
-  display: inline-flex;
-  font-size: 16px;
+  display: block;
+  flex: 0 0 auto;
   height: 34px;
-  justify-content: center;
+  object-fit: contain;
   width: 34px;
 }
 

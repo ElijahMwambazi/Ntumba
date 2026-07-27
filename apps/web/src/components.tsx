@@ -100,9 +100,14 @@ export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
 function Brand() {
   return (
     <Link aria-label="Ntumba Get paid" className="brand" to="/">
-      <span aria-hidden="true" className="brand-mark">
-        N
-      </span>
+      <img
+        alt=""
+        aria-hidden="true"
+        className="brand-mark"
+        height="34"
+        src="/ntumba-logo.png"
+        width="34"
+      />
       <span>Ntumba</span>
     </Link>
   );

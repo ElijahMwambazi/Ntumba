@@ -202,6 +202,13 @@ test.describe("mobile merchant and payer journey", () => {
     await page.goto("/");
 
     await expect(page.getByRole("heading", { name: "Get paid" })).toBeVisible();
+    await expect(page.locator("img.brand-mark")).toBeVisible();
+    expect(await page.locator("img.brand-mark").evaluate((logo) => logo.naturalWidth)).toBe(512);
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/ntumba-logo.png");
+    await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
+      "href",
+      "/ntumba-logo.png",
+    );
     await expect(page.getByText("Payer sends")).toHaveCount(0);
     await expect(page.getByLabel("Reference")).toHaveCount(0);
     await page.screenshot({
