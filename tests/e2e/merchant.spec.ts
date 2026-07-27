@@ -208,6 +208,33 @@ test.describe("mobile merchant and payer journey", () => {
       path: "artifacts/ui-review/mobile-get-paid-390x844.png",
     });
 
+    const mobileLayout = await page.locator(".task-layout").evaluate((layout) => {
+      const bounds = layout.getBoundingClientRect();
+      return {
+        left: bounds.left,
+        right: window.innerWidth - bounds.right,
+      };
+    });
+    expect(Math.abs(mobileLayout.left - mobileLayout.right)).toBeLessThanOrEqual(1);
+
+    const navShell = await page.locator(".bottom-nav-inner").evaluate((navigation) => {
+      const styles = getComputedStyle(navigation);
+      return {
+        borderTopLeftRadius: styles.borderTopLeftRadius,
+        borderTopRightRadius: styles.borderTopRightRadius,
+      };
+    });
+    expect(navShell).toEqual({
+      borderTopLeftRadius: "20px",
+      borderTopRightRadius: "20px",
+    });
+
+    const activeNavRadius = await page
+      .getByRole("navigation", { name: "Merchant" })
+      .getByRole("link", { name: /Get paid/ })
+      .evaluate((navigation) => getComputedStyle(navigation).borderTopLeftRadius);
+    expect(activeNavRadius).toBe("19px");
+
     await page.getByRole("button", { name: /Bitcoin BTC/ }).click();
     await expect(page.getByText("Bitcoin destination", { exact: true })).toBeVisible();
     await page.getByLabel("Amount").fill("125.00");
@@ -311,6 +338,16 @@ test.describe("desktop layout", () => {
     await expect(page.getByRole("heading", { name: "Get paid" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create request" })).toBeVisible();
     await expect(page.getByText("Three quick decisions")).toBeVisible();
+
+    const desktopLayout = await page.locator(".task-layout").evaluate((layout) => {
+      const bounds = layout.getBoundingClientRect();
+      return {
+        left: bounds.left,
+        right: window.innerWidth - bounds.right,
+      };
+    });
+    expect(Math.abs(desktopLayout.left - desktopLayout.right)).toBeLessThanOrEqual(1);
+
     await page.screenshot({
       path: "artifacts/ui-review/desktop-get-paid-1440x900.png",
     });

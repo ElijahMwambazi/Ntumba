@@ -158,6 +158,9 @@ a {
 .task-layout {
   display: grid;
   gap: 24px;
+  margin: 0 auto;
+  max-width: 560px;
+  width: 100%;
 }
 
 .support-panel {
@@ -499,6 +502,14 @@ a {
   color: var(--text);
 }
 
+.nav-item:first-child {
+  border-top-left-radius: 19px;
+}
+
+.nav-item:last-child {
+  border-top-right-radius: 19px;
+}
+
 .nav-current {
   font-size: 9px;
   font-weight: 700;
@@ -822,6 +833,7 @@ a {
   .task-layout {
     align-items: start;
     grid-template-columns: minmax(0, 560px) minmax(260px, 1fr);
+    max-width: none;
   }
 
   .support-panel {
