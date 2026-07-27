@@ -60,6 +60,9 @@ assert.ok(
   "Dependencies must be installed before repository validation",
 );
 assert.ok(yarnCheckIndex < playwrightInstallIndex, "Validation must pass before browser setup");
-assert.ok(playwrightInstallIndex < endToEndIndex, "Playwright must be ready before end-to-end tests");
+assert.ok(
+  playwrightInstallIndex < endToEndIndex,
+  "Playwright must be ready before end-to-end tests",
+);
 
 console.log("Repository baseline checks passed.");
