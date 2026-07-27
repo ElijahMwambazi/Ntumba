@@ -119,10 +119,12 @@ export function MerchantShell({
   active,
   children,
   headerAction,
+  wideContent = false,
 }: {
   active?: MerchantDestination;
   children: ReactNode;
   headerAction?: ReactNode;
+  wideContent?: boolean;
 }) {
   const navigation = [
     { destination: "get-paid" as const, icon: "home" as const, label: "Get paid", to: "/" },
@@ -146,7 +148,7 @@ export function MerchantShell({
         <Brand />
         {headerAction ? <div className="header-action">{headerAction}</div> : null}
       </header>
-      <main className="merchant-main">{children}</main>
+      <main className={`merchant-main${wideContent ? " merchant-main-wide" : ""}`}>{children}</main>
       <nav aria-label="Merchant" className="bottom-nav">
         <div className="bottom-nav-inner">
           {navigation.map((item) => {

@@ -13,7 +13,8 @@
   unverified direct-payment copy.
 - Repository architecture tests parse TypeScript structure to reject personal/raw columns and
   custodial provider methods.
-- Playwright runs a Pixel 7 profile at a 390×844 CSS viewport and desktop Chromium at 1440×900.
+- Playwright runs a Pixel 7 profile at a 390×844 CSS viewport and desktop Chromium at 1440×900,
+  with additional responsive checks at 768×1024 and 1024×768.
 
 ## Commands
 
@@ -48,6 +49,10 @@ requires a known development PostgreSQL database.
 - Request links use opaque public IDs and contain no URL-fragment destination payload.
 - Clear local data requires confirmation and does not imply server-side deletion.
 - Active navigation has a non-colour cue and tap targets are at least 48px.
+- The first local Get paid visit expands the appropriate quick guide and stores only the local
+  `quickGuideSeen` preference; later visits start collapsed and clear-data resets the behavior.
+- Quick-guide buttons expose valid `aria-expanded` and `aria-controls` state, and the desktop form
+  remains centred in both disclosure states.
 
 ## Browser scenarios and artifacts
 
@@ -58,7 +63,8 @@ requires a known development PostgreSQL database.
 - Settings persistence and cancel/confirm clear-data behavior.
 - Expired quote handling and direct Bitcoin remaining unverified.
 - IndexedDB-unavailable session fallback.
-- Task-dominant desktop layout.
+- First/subsequent quick-guide visits, manual disclosure, clear-data reset and storage failure.
+- Symmetrical desktop task geometry, mobile guide fallback and intermediate-width overflow checks.
 
 Running `yarn test:e2e` refreshes the viewport screenshots in `artifacts/ui-review/`:
 
@@ -67,3 +73,6 @@ Running `yarn test:e2e` refreshes the viewport screenshots in `artifacts/ui-revi
 - `mobile-checkout-390x844.png`
 - `mobile-activity-390x844.png`
 - `desktop-get-paid-1440x900.png`
+- `desktop-get-paid-collapsed-1440x900.png`
+- `mobile-get-paid-guide-expanded-390x844.png`
+- `mobile-get-paid-guide-collapsed-390x844.png`

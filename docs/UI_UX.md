@@ -43,6 +43,28 @@ different opaque identifiers. Raw destinations do not appear in URLs.
 - Loads the optional business name and remembered destinations from Settings.
 - Disables creation until amount, destination and connection are available.
 - Explains offline and session-only storage states in place.
+- Shows the quick guide expanded on the first visit for the current browser/device and collapsed on
+  later visits. The user can expand or collapse it without changing the next-visit default.
+
+#### Quick guide disclosure
+
+- Desktop places **Three quick decisions** in a collapsible card immediately to the right of the
+  payment card. The payment card and heading remain centred in the middle column whether the guide
+  is expanded or collapsed.
+- Below the desktop breakpoint, the side card is hidden and the same content appears through the
+  inline **How Ntumba works** disclosure at the bottom of the form. Both versions are never visible
+  at the same time.
+- First visit means the first Get paid visit for the current browser/device, not an identified
+  person. The first visit starts expanded and records `preferences.quickGuideSeen: true` in the
+  versioned `merchant-data` record in the `ntumba-local` IndexedDB database.
+- The flag is a non-sensitive local boolean. It is never sent to the server or included in payment
+  requests, URLs, analytics or logs. Clearing all Ntumba local data removes the flag, so the next
+  visit starts expanded again.
+- If IndexedDB is unavailable, the guide starts expanded and remains usable with the existing
+  session-memory fallback.
+- Disclosure controls are real buttons with `aria-expanded`, `aria-controls`, visible focus and a
+  text label in addition to the chevron. Controlled panels use stable IDs and no complex height
+  animation.
 
 ### Share request
 
@@ -103,6 +125,11 @@ inline, stroke-based SVG and always paired with text when they communicate an ac
 - Content has enough bottom padding to remain reachable above fixed navigation.
 - Desktop is reviewed at 1440×900 and keeps the creation task dominant, with guidance in a
   secondary column rather than stretching the form.
+- At the desktop breakpoint, Get paid uses symmetrical outer columns around a middle column of at
+  most 480px. The right column holds a guide of at most 240px with a 28px gap; the equivalent left
+  column remains empty so the heading and payment card are mathematically centred on the page.
+- The guide starts on the same grid row as the payment card, not the heading. Intermediate and
+  mobile widths use one centred column.
 - Route changes reset scroll to the top.
 
 ## Accessibility and language

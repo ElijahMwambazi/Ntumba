@@ -21,6 +21,28 @@ const networks: { label: string; value: MobileMoneyNetwork }[] = [
   { label: "Zamtel Money", value: "zamtel" },
 ];
 
+function QuickGuideContent() {
+  return (
+    <>
+      <ol className="quick-guide-list">
+        <li>Enter the amount in Kwacha.</li>
+        <li>Choose Mobile Money or Bitcoin.</li>
+        <li>Confirm where you want to receive it.</li>
+      </ol>
+      <p>
+        Saved business details stay on this device. Your customer chooses how to pay at checkout.
+      </p>
+      <p>Ntumba coordinates the request and never holds the funds.</p>
+    </>
+  );
+}
+
+function DisclosureChevron({ expanded }: { expanded: boolean }) {
+  return (
+    <span aria-hidden="true" className={`disclosure-chevron${expanded ? " is-expanded" : ""}`} />
+  );
+}
+
 export function MerchantPage() {
   const navigate = useNavigate();
   const [amountZmw, setAmountZmw] = useState("");
@@ -36,15 +58,28 @@ export function MerchantPage() {
   const [merchantLabel, setMerchantLabel] = useState("");
   const [storageWarning, setStorageWarning] = useState(!merchantLocalStore.available);
   const [online, setOnline] = useState(navigator.onLine);
+  const [guideExpanded, setGuideExpanded] = useState(false);
+  const [guideReady, setGuideReady] = useState(false);
 
   useEffect(() => {
-    void merchantLocalStore.load().then(({ preferences }) => {
+    void merchantLocalStore.load().then(async (localData) => {
+      const { preferences } = localData;
       setMerchantLabel(preferences.displayName ?? "");
       setReceiveAsset(preferences.preferredSettlementAsset ?? "ZMW");
       setNetwork(preferences.mobileMoneyDestination?.network ?? "mtn");
       setPhone(preferences.mobileMoneyDestination?.phone ?? "");
       setLightningDestination(preferences.lightningDestination ?? "");
       setLightningDestinationType(preferences.lightningDestinationType ?? "lightning_address");
+
+      const firstVisit = preferences.quickGuideSeen !== true;
+      if (firstVisit) {
+        await merchantLocalStore.save({
+          ...localData,
+          preferences: { ...preferences, quickGuideSeen: true },
+        });
+      }
+      setGuideExpanded(firstVisit);
+      setGuideReady(true);
       if (!merchantLocalStore.available) setStorageWarning(true);
     });
   }, []);
@@ -155,34 +190,39 @@ export function MerchantPage() {
           Activity
         </Link>
       }
+      wideContent
     >
       <div className="task-layout">
-        <section>
-          <p className="eyebrow">Private on this device</p>
-          <h1 className="page-title">Get paid</h1>
-          <p className="page-subtitle">
-            Choose what you want to receive. Your customer chooses how to pay.
-          </p>
+        <div className="task-primary">
+          <section aria-labelledby="get-paid-title" className="task-prelude">
+            <p className="eyebrow">Private on this device</p>
+            <h1 className="page-title" id="get-paid-title">
+              Get paid
+            </h1>
+            <p className="page-subtitle">
+              Choose what you want to receive. Your customer chooses how to pay.
+            </p>
 
-          {!online ? (
-            <div className="form-card">
-              <InlineStatus tone="warning">
-                <Icon name="info" />
-                You are offline. Your saved details remain available, but requests need a
-                connection.
-              </InlineStatus>
-            </div>
-          ) : null}
-          {storageWarning ? (
-            <div className="form-card">
-              <InlineStatus tone="warning">
-                <Icon name="shield" />
-                Device storage is unavailable. New details will last only for this session.
-              </InlineStatus>
-            </div>
-          ) : null}
+            {!online ? (
+              <div className="form-card">
+                <InlineStatus tone="warning">
+                  <Icon name="info" />
+                  You are offline. Your saved details remain available, but requests need a
+                  connection.
+                </InlineStatus>
+              </div>
+            ) : null}
+            {storageWarning ? (
+              <div className="form-card">
+                <InlineStatus tone="warning">
+                  <Icon name="shield" />
+                  Device storage is unavailable. New details will last only for this session.
+                </InlineStatus>
+              </div>
+            ) : null}
+          </section>
 
-          <form className="surface-card form-card form-stack" onSubmit={submit}>
+          <form className="surface-card form-card form-stack task-form" onSubmit={submit}>
             <div className="field-group">
               <label className="field-label" htmlFor="amount">
                 Amount
@@ -381,28 +421,62 @@ export function MerchantPage() {
               No account · Saved only on this device
             </p>
 
-            <details className="how-it-works">
-              <summary>How Ntumba works</summary>
-              <p>
-                Your customer pays your external wallet directly or uses an external provider that
-                pays you. Ntumba coordinates the request and never holds the funds.
-              </p>
-            </details>
+            {guideReady ? (
+              <section aria-labelledby="mobile-quick-guide-heading" className="how-it-works">
+                <h2 className="how-it-works-heading" id="mobile-quick-guide-heading">
+                  <button
+                    aria-controls="mobile-quick-guide-panel"
+                    aria-expanded={guideExpanded}
+                    className="how-it-works-toggle"
+                    onClick={() => setGuideExpanded((expanded) => !expanded)}
+                    type="button"
+                  >
+                    <span>How Ntumba works</span>
+                    <span className="disclosure-state">
+                      {guideExpanded ? "Hide guide" : "Show guide"}
+                    </span>
+                    <DisclosureChevron expanded={guideExpanded} />
+                  </button>
+                </h2>
+                <div
+                  className="quick-guide-content"
+                  hidden={!guideExpanded}
+                  id="mobile-quick-guide-panel"
+                >
+                  <QuickGuideContent />
+                </div>
+              </section>
+            ) : null}
           </form>
-        </section>
+        </div>
 
-        <aside className="surface-card support-panel">
-          <h2>Three quick decisions</h2>
-          <ul>
-            <li>Enter the amount in Kwacha.</li>
-            <li>Choose Mobile Money or Bitcoin.</li>
-            <li>Confirm where you want to receive it.</li>
-          </ul>
-          <p>
-            Set your business name and remembered destinations in Settings. Your customer chooses
-            the payment method at checkout.
-          </p>
-        </aside>
+        {guideReady ? (
+          <aside
+            aria-label="Quick guide"
+            className={`surface-card support-panel${guideExpanded ? "" : " is-collapsed"}`}
+          >
+            <div className="support-panel-header">
+              {guideExpanded ? <h2>Three quick decisions</h2> : null}
+              <button
+                aria-controls="desktop-quick-guide-panel"
+                aria-expanded={guideExpanded}
+                className="quick-guide-toggle"
+                onClick={() => setGuideExpanded((expanded) => !expanded)}
+                type="button"
+              >
+                <span>{guideExpanded ? "Hide guide" : "Quick guide"}</span>
+                <DisclosureChevron expanded={guideExpanded} />
+              </button>
+            </div>
+            <div
+              className="quick-guide-content"
+              hidden={!guideExpanded}
+              id="desktop-quick-guide-panel"
+            >
+              <QuickGuideContent />
+            </div>
+          </aside>
+        ) : null}
       </div>
     </MerchantShell>
   );

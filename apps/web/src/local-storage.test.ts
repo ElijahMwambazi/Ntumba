@@ -14,6 +14,7 @@ const data: MerchantLocalData = {
     displayName: "Market stall",
     mobileMoneyDestination: { network: "mtn", phone: "0971234567" },
     preferredSettlementAsset: "ZMW",
+    quickGuideSeen: true,
   },
   receipts: [
     {

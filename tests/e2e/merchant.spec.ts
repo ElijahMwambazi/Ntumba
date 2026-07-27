@@ -16,6 +16,48 @@ function expiresIn(minutes: number) {
   return new Date(Date.now() + minutes * 60_000).toISOString();
 }
 
+async function readQuickGuideSeen(page: Page) {
+  return page.evaluate(
+    () =>
+      new Promise<boolean | undefined>((resolve, reject) => {
+        const open = indexedDB.open("ntumba-local");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const database = open.result;
+          const transaction = database.transaction("merchant-data", "readonly");
+          const request = transaction.objectStore("merchant-data").get("current");
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const stored = typeof request.result === "string" ? JSON.parse(request.result) : {};
+            resolve(stored.preferences?.quickGuideSeen);
+          };
+          transaction.oncomplete = () => database.close();
+        };
+      }),
+  );
+}
+
+async function desktopTaskGeometry(page: Page) {
+  return page.locator(".task-layout").evaluate(() => {
+    const form = document.querySelector<HTMLElement>(".task-form")?.getBoundingClientRect();
+    const guide = document.querySelector<HTMLElement>(".support-panel")?.getBoundingClientRect();
+    const heading = document.querySelector<HTMLElement>(".task-prelude")?.getBoundingClientRect();
+
+    if (!form || !guide || !heading) throw new Error("Desktop task layout is incomplete.");
+
+    return {
+      formCenter: form.left + form.width / 2,
+      formWidth: form.width,
+      guideGap: guide.left - form.right,
+      guideTop: guide.top,
+      guideWidth: guide.width,
+      headingCenter: heading.left + heading.width / 2,
+      viewportCenter: window.innerWidth / 2,
+      formTop: form.top,
+    };
+  });
+}
+
 function quote(direction: keyof typeof quoteIds, amountZmw: string, expired = false) {
   const expiry = expired ? new Date(Date.now() - 1_000).toISOString() : expiresIn(10);
   if (direction === "btc_to_zmw") {
@@ -209,6 +251,10 @@ test.describe("mobile merchant and payer journey", () => {
       "href",
       "/ntumba-logo.png",
     );
+    const mobileGuide = page.getByRole("button", { name: /How Ntumba works/ });
+    await expect(mobileGuide).toHaveAttribute("aria-expanded", "true");
+    await expect(mobileGuide).toHaveAttribute("aria-controls", "mobile-quick-guide-panel");
+    await expect(page.locator(".support-panel")).toBeHidden();
     await expect(page.getByText("Payer sends")).toHaveCount(0);
     await expect(page.getByLabel("Reference")).toHaveCount(0);
     await page.screenshot({
@@ -301,6 +347,7 @@ test.describe("mobile merchant and payer journey", () => {
     await page.getByLabel("Business display name").fill("Lusaka Market");
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByText("Settings saved on this device.")).toBeVisible();
+    await expect.poll(() => readQuickGuideSeen(page)).toBe(true);
     await page.reload();
     await expect(page.getByLabel("Business display name")).toHaveValue("Lusaka Market");
 
@@ -312,6 +359,10 @@ test.describe("mobile merchant and payer journey", () => {
     await page.getByRole("button", { name: "Clear local data" }).click();
     await page.getByRole("button", { name: "Yes, clear local data" }).click();
     await expect(page).toHaveURL("/");
+    await expect(page.getByRole("button", { name: /How Ntumba works/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     await page.goto("/activity");
     await expect(page.getByRole("heading", { name: "No requests yet" })).toBeVisible();
   });
@@ -330,8 +381,55 @@ test.describe("mobile merchant and payer journey", () => {
     });
     await page.goto("/");
     await expect(page.getByText(/device storage is unavailable/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /How Ntumba works/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     await page.goto("/settings");
     await expect(page.getByText(/session-only storage fallback/i)).toBeVisible();
+  });
+
+  test("uses the inline guide and remembers that the first visit was shown", async ({ page }) => {
+    await page.goto("/");
+
+    const mobileGuide = page.getByRole("button", { name: /How Ntumba works/ });
+    await expect(mobileGuide).toBeVisible();
+    await expect(mobileGuide).toHaveAttribute("aria-expanded", "true");
+    await expect(mobileGuide).toHaveAttribute("aria-controls", "mobile-quick-guide-panel");
+    await expect(page.locator("#mobile-quick-guide-panel")).toBeVisible();
+    await expect(page.locator(".support-panel")).toBeHidden();
+    await expect.poll(() => readQuickGuideSeen(page)).toBe(true);
+
+    await mobileGuide.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "artifacts/ui-review/mobile-get-paid-guide-expanded-390x844.png",
+    });
+
+    await page.reload();
+    const subsequentGuide = page.getByRole("button", { name: /How Ntumba works/ });
+    await expect(subsequentGuide).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("#mobile-quick-guide-panel")).toBeHidden();
+    await subsequentGuide.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: "artifacts/ui-review/mobile-get-paid-guide-collapsed-390x844.png",
+    });
+
+    await subsequentGuide.click();
+    await expect(subsequentGuide).toHaveAttribute("aria-expanded", "true");
+    await subsequentGuide.click();
+    await expect(subsequentGuide).toHaveAttribute("aria-expanded", "false");
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const bottomClearance = await page.evaluate(() => {
+      const guide = document.querySelector(".how-it-works")?.getBoundingClientRect();
+      const navigation = document.querySelector(".bottom-nav")?.getBoundingClientRect();
+      if (!guide || !navigation) throw new Error("Mobile guide or navigation is missing.");
+      return navigation.top - guide.bottom;
+    });
+    expect(bottomClearance).toBeGreaterThanOrEqual(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      390,
+    );
   });
 });
 
@@ -345,18 +443,93 @@ test.describe("desktop layout", () => {
     await expect(page.getByRole("heading", { name: "Get paid" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create request" })).toBeVisible();
     await expect(page.getByText("Three quick decisions")).toBeVisible();
+    const quickGuide = page.getByRole("button", { name: "Hide guide" });
+    await expect(quickGuide).toHaveAttribute("aria-expanded", "true");
+    await expect(quickGuide).toHaveAttribute("aria-controls", "desktop-quick-guide-panel");
+    await expect(page.locator("#desktop-quick-guide-panel")).toBeVisible();
+    await expect(page.locator(".how-it-works")).toBeHidden();
+    await expect.poll(() => readQuickGuideSeen(page)).toBe(true);
 
-    const desktopLayout = await page.locator(".task-layout").evaluate((layout) => {
-      const bounds = layout.getBoundingClientRect();
-      return {
-        left: bounds.left,
-        right: window.innerWidth - bounds.right,
-      };
-    });
-    expect(Math.abs(desktopLayout.left - desktopLayout.right)).toBeLessThanOrEqual(1);
+    const desktopLayout = await desktopTaskGeometry(page);
+    expect(Math.abs(desktopLayout.formCenter - desktopLayout.viewportCenter)).toBeLessThanOrEqual(
+      1,
+    );
+    expect(
+      Math.abs(desktopLayout.headingCenter - desktopLayout.viewportCenter),
+    ).toBeLessThanOrEqual(1);
+    expect(desktopLayout.formWidth).toBeGreaterThanOrEqual(440);
+    expect(desktopLayout.formWidth).toBeLessThanOrEqual(480);
+    expect(desktopLayout.guideWidth).toBeGreaterThanOrEqual(220);
+    expect(desktopLayout.guideWidth).toBeLessThanOrEqual(250);
+    expect(desktopLayout.guideGap).toBeGreaterThanOrEqual(24);
+    expect(desktopLayout.guideGap).toBeLessThanOrEqual(32);
+    expect(Math.abs(desktopLayout.guideTop - desktopLayout.formTop)).toBeLessThanOrEqual(1);
 
     await page.screenshot({
       path: "artifacts/ui-review/desktop-get-paid-1440x900.png",
     });
+
+    await quickGuide.click();
+    await expect(page.getByRole("button", { name: "Quick guide" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await expect(page.getByRole("button", { name: "Quick guide" })).toHaveAttribute(
+      "aria-controls",
+      "desktop-quick-guide-panel",
+    );
+    await expect(
+      page.locator("#desktop-quick-guide-panel").getByText("Enter the amount in Kwacha."),
+    ).toBeHidden();
+    const collapsedLayout = await desktopTaskGeometry(page);
+    expect(
+      Math.abs(collapsedLayout.formCenter - collapsedLayout.viewportCenter),
+    ).toBeLessThanOrEqual(1);
+    await page.screenshot({
+      path: "artifacts/ui-review/desktop-get-paid-collapsed-1440x900.png",
+    });
+
+    await page.reload();
+    const subsequentGuide = page.getByRole("button", { name: "Quick guide" });
+    await expect(subsequentGuide).toHaveAttribute("aria-expanded", "false");
+    await subsequentGuide.click();
+    await expect(page.getByRole("button", { name: "Hide guide" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Quick guide" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await page.getByRole("button", { name: "Quick guide" }).click();
+    await page.getByRole("button", { name: "Hide guide" }).click();
+    await expect(page.getByRole("button", { name: "Quick guide" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  test("keeps intermediate viewports single-column and free of horizontal overflow", async ({
+    page,
+  }) => {
+    for (const viewport of [
+      { height: 1_024, width: 768 },
+      { height: 768, width: 1_024 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.goto("/");
+      await expect(page.locator(".support-panel")).toBeHidden();
+      await expect(page.getByRole("button", { name: /How Ntumba works/ })).toBeVisible();
+
+      const formCenter = await page.locator(".task-form").evaluate((form) => {
+        const bounds = form.getBoundingClientRect();
+        return bounds.left + bounds.width / 2;
+      });
+      expect(Math.abs(formCenter - viewport.width / 2)).toBeLessThanOrEqual(1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        viewport.width,
+      );
+    }
   });
 });

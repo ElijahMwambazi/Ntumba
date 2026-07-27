@@ -43,7 +43,13 @@ export function SettingsPage() {
       ...(phone.trim() ? { mobileMoneyDestination: { network, phone: phone.trim() } } : {}),
       preferredSettlementAsset: preferredAsset,
     };
-    await merchantLocalStore.update((current) => ({ ...current, preferences }));
+    await merchantLocalStore.update((current) => ({
+      ...current,
+      preferences: {
+        ...preferences,
+        ...(current.preferences.quickGuideSeen ? { quickGuideSeen: true } : {}),
+      },
+    }));
     setStorageAvailable(merchantLocalStore.available);
     setFeedback("Settings saved on this device.");
   }

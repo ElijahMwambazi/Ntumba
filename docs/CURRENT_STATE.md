@@ -15,6 +15,9 @@
 - QR, copy-link and Web Share UI with success/error feedback and fallback.
 - Accessible light-first UI tokens, semantic controls, visible focus, 48px mobile targets,
   reduced-motion support, safe-area bottom navigation and desktop task layout.
+- Symmetrical desktop Get paid layout with a centred 480px payment task and a separate collapsible
+  quick guide, plus a single-column mobile disclosure. First-visit state is stored as a local-only
+  boolean and resets with all other local Ntumba data.
 - Destination-free quote contracts and integer-only quote arithmetic.
 - Provider-direct settlement contract with safe deterministic fake.
 - Separate direct-Lightning contract that preserves merchant-owned invoices.

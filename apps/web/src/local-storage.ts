@@ -11,6 +11,7 @@ export interface MerchantPreferences {
     phone: string;
   };
   preferredSettlementAsset?: Asset;
+  quickGuideSeen?: boolean;
 }
 
 export interface LocalPaymentRequest {
