@@ -41,6 +41,10 @@ export class FakeVoltageLndTreasury implements BitcoinLiquidityRail {
     string,
     { amountSats: bigint; lookupReference: string; paymentRequestHash: string }
   >();
+  readonly #uncertainPayments = new Map<
+    string,
+    { amountSats: bigint; outcome: "timeout" | "unknown"; paymentRequestHash: string }
+  >();
   #status: BitcoinTreasuryStatus;
 
   constructor(
@@ -81,6 +85,9 @@ export class FakeVoltageLndTreasury implements BitcoinLiquidityRail {
       }
       return { outcome: "success", value: { ...existing } };
     }
+    if (!this.#status.available) {
+      return { outcome: "failure", value: null };
+    }
     const outcome = this.outcome("create_invoice");
     if (outcome !== "success") {
       return { outcome, value: null };
@@ -103,16 +110,23 @@ export class FakeVoltageLndTreasury implements BitcoinLiquidityRail {
   }
 
   setInvoiceState(lookupReference: string, state: InvoiceState): void {
-    this.#invoiceStates.set(lookupReference, state);
     if (state !== "settled") {
+      this.#invoiceStates.set(lookupReference, state);
       return;
     }
     for (const [key, invoice] of this.#createdInvoices) {
       if (invoice.lookupReference === lookupReference && !invoice.credited) {
+        if (!this.#status.available || this.#status.inboundCapacitySats < invoice.amountSats) {
+          this.#invoiceStates.set(lookupReference, "failed");
+          return;
+        }
         this.#status.availableBalanceSats += invoice.amountSats;
+        this.#status.inboundCapacitySats -= invoice.amountSats;
+        this.#status.outboundCapacitySats += invoice.amountSats;
         this.#createdInvoices.set(key, { ...invoice, credited: true });
       }
     }
+    this.#invoiceStates.set(lookupReference, state);
   }
 
   async payInvoice(input: {
@@ -132,7 +146,25 @@ export class FakeVoltageLndTreasury implements BitcoinLiquidityRail {
       }
       return { outcome: "success", value: { lookupReference: existing.lookupReference } };
     }
+    const uncertain = this.#uncertainPayments.get(input.idempotencyKey);
+    if (uncertain) {
+      if (
+        uncertain.amountSats !== input.amountSats ||
+        uncertain.paymentRequestHash !== digest(input.paymentRequest)
+      ) {
+        throw new Error("Fake Lightning payment idempotency conflict.");
+      }
+      return { outcome: uncertain.outcome, value: null };
+    }
     const outcome = this.outcome("pay_invoice");
+    if (outcome === "timeout" || outcome === "unknown") {
+      this.#uncertainPayments.set(input.idempotencyKey, {
+        amountSats: input.amountSats,
+        outcome,
+        paymentRequestHash: digest(input.paymentRequest),
+      });
+      return { outcome, value: null };
+    }
     if (
       outcome !== "success" ||
       !this.#status.available ||
@@ -153,6 +185,7 @@ export class FakeVoltageLndTreasury implements BitcoinLiquidityRail {
     this.#paidInvoices.set(input.idempotencyKey, payment);
     this.#status.availableBalanceSats -= input.amountSats;
     this.#status.outboundCapacitySats -= input.amountSats;
+    this.#status.inboundCapacitySats += input.amountSats;
     return { outcome: "success", value: { lookupReference: payment.lookupReference } };
   }
 
@@ -165,7 +198,12 @@ export class FakeLipilaMobileMoneyTreasury implements MobileMoneyLiquidityRail {
   readonly attemptedDisbursementIdempotencyKeys: string[] = [];
   readonly #collections = new Map<
     string,
-    { amountZmwMinor: bigint; checkoutUrl: string; lookupReference: string }
+    {
+      amountZmwMinor: bigint;
+      checkoutUrl: string;
+      credited: boolean;
+      lookupReference: string;
+    }
   >();
   readonly #collectionStates = new Map<string, CollectionState>();
   readonly #disbursements = new Map<
@@ -173,6 +211,10 @@ export class FakeLipilaMobileMoneyTreasury implements MobileMoneyLiquidityRail {
     { amountZmwMinor: bigint; destinationHash: string; lookupReference: string }
   >();
   readonly #nextOutcomes = new Map<MobileMoneyOperation, ExternalOutcome[]>();
+  readonly #uncertainDisbursements = new Map<
+    string,
+    { amountZmwMinor: bigint; destinationHash: string; outcome: "timeout" | "unknown" }
+  >();
   #status: MobileMoneyTreasuryStatus;
 
   constructor(
@@ -214,6 +256,7 @@ export class FakeLipilaMobileMoneyTreasury implements MobileMoneyLiquidityRail {
     const collection = {
       amountZmwMinor: input.amountZmwMinor,
       checkoutUrl: `https://lipila.invalid/collect/${suffix}`,
+      credited: false,
       lookupReference: `fake-lipila-collection-${suffix}`,
     };
     this.#collections.set(input.idempotencyKey, collection);
@@ -225,11 +268,16 @@ export class FakeLipilaMobileMoneyTreasury implements MobileMoneyLiquidityRail {
     return this.#collectionStates.get(lookupReference) ?? "unknown";
   }
 
-  setCollectionState(lookupReference: string, state: CollectionState, amountZmwMinor = 0n): void {
-    this.#collectionStates.set(lookupReference, state);
-    if (state === "settled" && amountZmwMinor > 0n) {
-      this.#status.availableBalanceZmwMinor += amountZmwMinor;
+  setCollectionState(lookupReference: string, state: CollectionState): void {
+    if (state === "settled") {
+      for (const [key, collection] of this.#collections) {
+        if (collection.lookupReference === lookupReference && !collection.credited) {
+          this.#status.availableBalanceZmwMinor += collection.amountZmwMinor;
+          this.#collections.set(key, { ...collection, credited: true });
+        }
+      }
     }
+    this.#collectionStates.set(lookupReference, state);
   }
 
   async disburse(input: {
@@ -253,7 +301,25 @@ export class FakeLipilaMobileMoneyTreasury implements MobileMoneyLiquidityRail {
       }
       return { outcome: "success", value: { lookupReference: existing.lookupReference } };
     }
+    const uncertain = this.#uncertainDisbursements.get(input.idempotencyKey);
+    if (uncertain) {
+      if (
+        uncertain.amountZmwMinor !== input.amountZmwMinor ||
+        uncertain.destinationHash !== digest(JSON.stringify(input.destination))
+      ) {
+        throw new Error("Fake mobile-money disbursement idempotency conflict.");
+      }
+      return { outcome: uncertain.outcome, value: null };
+    }
     const outcome = this.outcome("disburse");
+    if (outcome === "timeout" || outcome === "unknown") {
+      this.#uncertainDisbursements.set(input.idempotencyKey, {
+        amountZmwMinor: input.amountZmwMinor,
+        destinationHash: digest(JSON.stringify(input.destination)),
+        outcome,
+      });
+      return { outcome, value: null };
+    }
     if (
       outcome !== "success" ||
       !this.#status.available ||

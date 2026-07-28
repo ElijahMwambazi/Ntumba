@@ -14,11 +14,7 @@ import type { BridgeEngine } from "@ntumba/treasury";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { purgeWithMetrics } from "../observability.js";
-import type {
-  PaymentStore,
-  StoredPaymentIntent,
-  StoredProviderIntentOutbox,
-} from "../payment-store.js";
+import type { PaymentStore, StoredPaymentIntent } from "../payment-store.js";
 
 export interface PaymentRouteDependencies {
   bridgeEngine: BridgeEngine;
@@ -28,24 +24,6 @@ export interface PaymentRouteDependencies {
 }
 
 type BridgePaymentIntentRequest = Exclude<CreatePaymentIntentRequest, { direction: "btc_to_btc" }>;
-
-function createProviderIntentOutbox(
-  intent: StoredPaymentIntent,
-  attemptedAt: Date,
-): StoredProviderIntentOutbox {
-  return {
-    attemptCount: 1,
-    createdAt: attemptedAt,
-    id: randomUUID(),
-    lastAttemptAt: attemptedAt,
-    lastFailureCode: null,
-    paymentIntentId: intent.id,
-    processedAt: null,
-    provider: "fake_treasury",
-    purgeAt: intent.purgeAt,
-    updatedAt: attemptedAt,
-  };
-}
 
 async function dispatchProviderIntent(
   config: NtumbaConfig,
@@ -72,15 +50,29 @@ async function dispatchProviderIntent(
       destinationAmount,
       destinationAsset: input.direction === "btc_to_zmw" ? "ZMW" : "BTC",
       direction: input.direction,
-      expiresAt: new Date(
-        Math.min(
-          new Date(quote.response.expiresAt).getTime(),
-          Date.now() + config.SETTLEMENT_DESTINATION_TTL_SECONDS * 1_000,
-        ),
+      destinationExpiresAt: new Date(
+        stagedIntent.createdAt.getTime() + config.SETTLEMENT_DESTINATION_TTL_SECONDS * 1_000,
       ),
       settlementIdempotencyKey: `settlement:${input.idempotencyKey}`,
       sourceAmount,
       sourceAsset: input.direction === "btc_to_zmw" ? "BTC" : "ZMW",
+      sourcePaymentExpiresAt: new Date(
+        stagedIntent.createdAt.getTime() + config.SOURCE_PAYMENT_TTL_SECONDS * 1_000,
+      ),
+      intent: {
+        createdAt: stagedIntent.createdAt,
+        destinationAmount,
+        destinationAsset: input.direction === "btc_to_zmw" ? "ZMW" : "BTC",
+        direction: input.direction,
+        expiresAt: stagedIntent.expiresAt,
+        id: stagedIntent.id,
+        idempotencyKey: stagedIntent.idempotencyKey,
+        provider: "fake_treasury",
+        purgeAt: stagedIntent.purgeAt,
+        quoteId: stagedIntent.quoteId,
+        sourceAmount,
+        sourceAsset: input.direction === "btc_to_zmw" ? "BTC" : "ZMW",
+      },
     });
   } catch (error) {
     await dependencies.store.recordProviderIntentFailure(
@@ -91,12 +83,16 @@ async function dispatchProviderIntent(
     throw error;
   }
 
-  const intent = await dependencies.store.completeProviderIntent(stagedIntent.id, {
+  const completedView: StoredPaymentIntent = {
+    ...stagedIntent,
     destinationToken: bridge.destinationLookupToken,
     expiresAt: bridge.expiresAt,
+    failureCode: bridge.settlement.failureCode,
     providerReference: bridge.sourceReference,
     updatedAt: new Date(),
-  });
+    status: bridge.settlement.status,
+  };
+  const intent = await dependencies.store.saveIntent(completedView);
   if (
     intent.providerReference !== bridge.sourceReference ||
     intent.destinationToken !== bridge.destinationLookupToken
@@ -185,13 +181,6 @@ export function paymentIntentRoutes(
               verification: "unverified",
             };
           } else {
-            if (intent.status === "created") {
-              const attemptedAt = new Date();
-              intent = await dependencies.store.stageProviderIntent(
-                intent,
-                createProviderIntentOutbox(intent, attemptedAt),
-              );
-            }
             const dispatched = await dispatchProviderIntent(
               config,
               dependencies,
@@ -265,21 +254,9 @@ export function paymentIntentRoutes(
             providerReference: null,
             purgeAt: retention.purgeAt,
             quoteId: quote.response.quoteId,
-            status: "created",
+            status: "quote_locked",
             updatedAt: now,
           };
-          intent = await dependencies.store.stageProviderIntent(
-            intent,
-            createProviderIntentOutbox(intent, now),
-          );
-          if (
-            intent.quoteId !== request.body.quoteId ||
-            intent.direction !== request.body.direction
-          ) {
-            throw app.httpErrors.conflict(
-              "The idempotency key is already bound to another payment request.",
-            );
-          }
           const dispatched = await dispatchProviderIntent(
             config,
             dependencies,

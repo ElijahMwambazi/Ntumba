@@ -25,6 +25,7 @@ export function createOperationalSnapshotReader(
           lastSuccessfulReconciliationAt: treasury.lastSuccessfulReconciliationAt,
           lightningAvailable: treasury.bitcoin.available,
           manualReview: treasury.manualReview,
+          reconciliationReviewRequired: treasury.reconciliationReviewRequired,
           mobileMoneyAvailable: treasury.mobileMoney.available,
           mobileMoneyBalanceZmwMinor: treasury.mobileMoney.availableBalanceZmwMinor,
           outboundCapacitySats: treasury.bitcoin.outboundCapacitySats,

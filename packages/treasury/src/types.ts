@@ -126,8 +126,10 @@ export interface ReconciliationService {
 export interface BridgeSettlement {
   collectionIdempotencyKey: string;
   createdAt: Date;
+  creationFingerprint: string;
   destinationAmount: bigint;
   destinationAsset: TreasuryAsset;
+  destinationExpiresAt: Date;
   destinationLookupToken: string | null;
   destinationReference: string | null;
   direction: Exclude<PaymentDirection, "btc_to_btc">;
@@ -135,11 +137,14 @@ export interface BridgeSettlement {
   expiresAt: Date;
   failureCode: string | null;
   id: string;
+  paymentIntentId: string;
+  reconciliationReviewRequired: boolean;
   reservationId: string | null;
   settlementAttemptCount: number;
   settlementIdempotencyKey: string;
   sourceAmount: bigint;
   sourceAsset: TreasuryAsset;
+  sourcePaymentExpiresAt: Date;
   sourceReference: string | null;
   status: Exclude<PaymentStatus, "direct_payment_pending" | "direct_payment_settled">;
   updatedAt: Date;
@@ -160,22 +165,28 @@ export interface BridgeEngine {
     destination: SettlementDestination;
     destinationAmount: bigint;
     destinationAsset: TreasuryAsset;
+    destinationExpiresAt: Date;
     direction: Exclude<PaymentDirection, "btc_to_btc">;
-    expiresAt: Date;
+    intent: import("./repository.js").DurablePaymentIntentInput;
     settlementIdempotencyKey: string;
     sourceAmount: bigint;
     sourceAsset: TreasuryAsset;
+    sourcePaymentExpiresAt: Date;
   }): Promise<BridgeCreation>;
-  expireBeforeSourceSettlement(settlementId: string, now?: Date): BridgeSettlement;
+  appendProviderEvent(
+    event: import("./repository.js").NormalizedProviderEventInput,
+  ): Promise<"inserted" | "duplicate" | "conflict">;
+  expireNextSourcePayment(now?: Date): Promise<BridgeSettlement | null>;
   markSourceOutcome(
     settlementId: string,
     outcome: "pending" | "settled" | "failed" | "timeout" | "unknown",
     now?: Date,
   ): Promise<BridgeSettlement>;
+  processNextProviderEvent(now?: Date): Promise<BridgeSettlement | null>;
+  processNextDestination(now?: Date): Promise<BridgeSettlement | null>;
   processDestination(settlementId: string, now?: Date): Promise<BridgeSettlement>;
-  read(settlementId: string): BridgeSettlement | undefined;
+  read(settlementId: string): Promise<BridgeSettlement | undefined>;
   readOperationalStatus(): Promise<TreasuryOperationalStatus>;
-  requireRefund(settlementId: string, now?: Date): BridgeSettlement;
   retryDestination(settlementId: string, now?: Date): Promise<BridgeSettlement>;
 }
 
@@ -183,6 +194,7 @@ export interface TreasuryOperationalStatus {
   bitcoin: BitcoinTreasuryStatus;
   lastSuccessfulReconciliationAt: Date | null;
   manualReview: number;
+  reconciliationReviewRequired: number;
   mobileMoney: MobileMoneyTreasuryStatus;
   refundRequired: number;
   reservedBtcSats: bigint;

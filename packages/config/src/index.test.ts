@@ -34,4 +34,23 @@ describe("bridge configuration safety", () => {
       "fake bridge engine cannot be enabled in production",
     );
   });
+
+  it("keeps destination retention beyond source expiry and callback grace", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "development",
+        SETTLEMENT_CALLBACK_GRACE_SECONDS: "60",
+        SETTLEMENT_DESTINATION_TTL_SECONDS: "239",
+        SOURCE_PAYMENT_TTL_SECONDS: "180",
+      }),
+    ).toThrow("must cover source expiry plus callback processing grace");
+    expect(
+      loadConfig({
+        NODE_ENV: "development",
+        SETTLEMENT_CALLBACK_GRACE_SECONDS: "60",
+        SETTLEMENT_DESTINATION_TTL_SECONDS: "240",
+        SOURCE_PAYMENT_TTL_SECONDS: "180",
+      }).SETTLEMENT_DESTINATION_TTL_SECONDS,
+    ).toBe(240);
+  });
 });

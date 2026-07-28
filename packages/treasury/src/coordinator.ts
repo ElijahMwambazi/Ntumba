@@ -1,16 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SettlementDestination } from "@ntumba/contracts";
-import { assertTransition } from "@ntumba/domain";
+import type {
+  DestinationSettlementWork,
+  DurablePaymentIntentInput,
+  NormalizedProviderEventInput,
+  SettlementSagaRepository,
+} from "./repository.js";
 import type {
   BitcoinLiquidityRail,
   BridgeCreation,
   BridgeEngine,
   BridgeSettlement,
-  LiquidityInventoryService,
   MobileMoneyLiquidityRail,
+  ReconciliationResult,
   ReconciliationService,
   SettlementDestinationVault,
-  TreasuryJournal,
   TreasuryOperationalStatus,
 } from "./types.js";
 
@@ -44,21 +48,19 @@ function creationFingerprint(input: {
   destination: SettlementDestination;
   destinationAmount: bigint;
   destinationAsset: "BTC" | "ZMW";
+  destinationExpiresAt: Date;
   direction: "btc_to_zmw" | "zmw_to_btc";
-  expiresAt: Date;
+  intent: DurablePaymentIntentInput;
   settlementIdempotencyKey: string;
   sourceAmount: bigint;
   sourceAsset: "BTC" | "ZMW";
+  sourcePaymentExpiresAt: Date;
 }): string {
-  const destination =
-    input.destination.type === "mobile_money"
-      ? `mobile_money:${input.destination.network}:${input.destination.phone}`
-      : input.destination.type === "lightning_address"
-        ? `lightning_address:${input.destination.address}`
-        : `lightning_invoice:${input.destination.invoice}`;
   return createHash("sha256")
     .update(
       [
+        input.intent.id,
+        input.intent.idempotencyKey,
         input.collectionIdempotencyKey,
         input.settlementIdempotencyKey,
         input.direction,
@@ -66,148 +68,109 @@ function creationFingerprint(input: {
         input.sourceAmount.toString(),
         input.destinationAsset,
         input.destinationAmount.toString(),
-        input.expiresAt.toISOString(),
-        destination,
+        input.sourcePaymentExpiresAt.toISOString(),
+        input.destinationExpiresAt.toISOString(),
+        JSON.stringify(input.destination),
       ].join("\u0000"),
     )
     .digest("hex");
 }
 
-export class FakeSettlementCoordinator implements BridgeEngine {
+function validateCreation(input: Parameters<BridgeEngine["create"]>[0], now: Date): void {
+  if (
+    input.collectionIdempotencyKey === input.settlementIdempotencyKey ||
+    input.sourceAmount <= 0n ||
+    input.destinationAmount <= 0n ||
+    input.intent.sourceAmount !== input.sourceAmount ||
+    input.intent.destinationAmount !== input.destinationAmount ||
+    input.intent.sourceAsset !== input.sourceAsset ||
+    input.intent.destinationAsset !== input.destinationAsset ||
+    input.intent.direction !== input.direction ||
+    input.sourcePaymentExpiresAt.getTime() <= now.getTime() ||
+    input.destinationExpiresAt.getTime() <= input.sourcePaymentExpiresAt.getTime() ||
+    (input.direction === "btc_to_zmw" &&
+      (input.sourceAsset !== "BTC" ||
+        input.destinationAsset !== "ZMW" ||
+        input.destination.type !== "mobile_money")) ||
+    (input.direction === "zmw_to_btc" &&
+      (input.sourceAsset !== "ZMW" ||
+        input.destinationAsset !== "BTC" ||
+        input.destination.type === "mobile_money"))
+  ) {
+    throw new Error(
+      "Bridge direction, deadlines, destination and integer amounts are inconsistent.",
+    );
+  }
+}
+
+export class RepositoryBackedSettlementCoordinator implements BridgeEngine {
   readonly #bitcoin: BitcoinLiquidityRail;
-  readonly #creationFingerprintsByCollectionKey = new Map<string, string>();
-  readonly #creationsByCollectionKey = new Map<string, BridgeCreation>();
-  readonly #inventory: LiquidityInventoryService;
-  readonly #journal: TreasuryJournal;
-  #lastSuccessfulReconciliationAt: Date | null = null;
+  readonly #enabled: boolean;
   readonly #mobileMoney: MobileMoneyLiquidityRail;
   readonly #reconciliation: ReconciliationService;
-  readonly #settlements = new Map<string, BridgeSettlement>();
+  readonly #repository: SettlementSagaRepository;
   readonly #vault: SettlementDestinationVault;
 
   constructor(dependencies: {
     bitcoin: BitcoinLiquidityRail;
-    inventory: LiquidityInventoryService;
-    journal: TreasuryJournal;
+    enabled?: boolean;
     mobileMoney: MobileMoneyLiquidityRail;
     reconciliation: ReconciliationService;
+    repository: SettlementSagaRepository;
     vault: SettlementDestinationVault;
   }) {
     this.#bitcoin = dependencies.bitcoin;
-    this.#inventory = dependencies.inventory;
-    this.#journal = dependencies.journal;
+    this.#enabled = dependencies.enabled ?? true;
     this.#mobileMoney = dependencies.mobileMoney;
     this.#reconciliation = dependencies.reconciliation;
+    this.#repository = dependencies.repository;
     this.#vault = dependencies.vault;
   }
 
-  private transition(
-    settlement: BridgeSettlement,
-    status: BridgeSettlement["status"],
-    now: Date,
-    failureCode: string | null = settlement.failureCode,
-  ): BridgeSettlement {
-    assertTransition(settlement.status, status);
-    const updated = { ...settlement, failureCode, status, updatedAt: now };
-    this.#settlements.set(updated.id, updated);
-    return updated;
-  }
-
-  async create(input: {
-    collectionIdempotencyKey: string;
-    destination: SettlementDestination;
-    destinationAmount: bigint;
-    destinationAsset: "BTC" | "ZMW";
-    direction: "btc_to_zmw" | "zmw_to_btc";
-    expiresAt: Date;
-    settlementIdempotencyKey: string;
-    sourceAmount: bigint;
-    sourceAsset: "BTC" | "ZMW";
-  }): Promise<BridgeCreation> {
-    if (input.collectionIdempotencyKey === input.settlementIdempotencyKey) {
-      throw new Error("Collection and settlement require separate idempotency keys.");
-    }
-    const fingerprint = creationFingerprint(input);
-    const existing = this.#creationsByCollectionKey.get(input.collectionIdempotencyKey);
-    if (existing) {
-      if (
-        this.#creationFingerprintsByCollectionKey.get(input.collectionIdempotencyKey) !==
-        fingerprint
-      ) {
-        throw new Error("Bridge idempotency conflict.");
+  async create(input: Parameters<BridgeEngine["create"]>[0]): Promise<BridgeCreation> {
+    const now = input.intent.createdAt;
+    validateCreation(input, now);
+    let staged: Awaited<ReturnType<SettlementSagaRepository["stageBridge"]>>;
+    try {
+      staged = await this.#repository.stageBridge({
+        collectionIdempotencyKey: input.collectionIdempotencyKey,
+        creationFingerprint: creationFingerprint(input),
+        destinationExpiresAt: input.destinationExpiresAt,
+        intent: input.intent,
+        settlementIdempotencyKey: input.settlementIdempotencyKey,
+        sourcePaymentExpiresAt: input.sourcePaymentExpiresAt,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("liquidity")) {
+        throw new LiquidityUnavailableError();
       }
-      return existing;
-    }
-    if (
-      input.sourceAmount <= 0n ||
-      input.destinationAmount <= 0n ||
-      (input.direction === "btc_to_zmw" &&
-        (input.sourceAsset !== "BTC" ||
-          input.destinationAsset !== "ZMW" ||
-          input.destination.type !== "mobile_money")) ||
-      (input.direction === "zmw_to_btc" &&
-        (input.sourceAsset !== "ZMW" ||
-          input.destinationAsset !== "BTC" ||
-          input.destination.type === "mobile_money"))
-    ) {
-      throw new Error("Bridge direction, destination and integer amounts are inconsistent.");
+      throw error;
     }
 
-    const now = new Date();
-    const id = randomUUID();
-    const exchangeGroupId = randomUUID();
-    const reservationId = `bridge-reservation:${id}`;
-    let settlement: BridgeSettlement = {
-      collectionIdempotencyKey: input.collectionIdempotencyKey,
-      createdAt: now,
-      destinationAmount: input.destinationAmount,
-      destinationAsset: input.destinationAsset,
-      destinationLookupToken: null,
-      destinationReference: null,
-      direction: input.direction,
-      exchangeGroupId,
-      expiresAt: input.expiresAt,
-      failureCode: null,
-      id,
-      reservationId: null,
-      settlementAttemptCount: 0,
-      settlementIdempotencyKey: input.settlementIdempotencyKey,
-      sourceAmount: input.sourceAmount,
-      sourceAsset: input.sourceAsset,
-      sourceReference: null,
-      status: "created",
-      updatedAt: now,
-    };
-    this.#settlements.set(id, settlement);
-
-    const reservation = this.#inventory.reserve({
-      amount: input.destinationAmount,
-      asset: input.destinationAsset,
-      reservationId,
-    });
-    if (!reservation) {
-      settlement = this.transition(
-        settlement,
-        "liquidity_unavailable",
-        now,
-        "LIQUIDITY_UNAVAILABLE",
-      );
-      throw new LiquidityUnavailableError();
+    let settlement = staged.settlement;
+    let destinationToken = settlement.destinationLookupToken;
+    if (!destinationToken) {
+      try {
+        destinationToken = this.#vault.put(input.destination, input.destinationExpiresAt);
+        settlement = await this.#repository.attachDestinationToken(
+          settlement.id,
+          destinationToken,
+          now,
+        );
+      } catch (error) {
+        if (destinationToken) {
+          this.#vault.delete(destinationToken);
+        }
+        await this.#repository.failSourceSetup(settlement.id, "failure", now);
+        throw error;
+      }
     }
-    settlement = {
-      ...this.transition(settlement, "quote_locked", now),
-      reservationId: reservation.id,
-    };
-    this.#settlements.set(id, settlement);
-    const destinationLookupToken = this.#vault.put(input.destination, input.expiresAt);
-    settlement = { ...settlement, destinationLookupToken };
-    this.#settlements.set(id, settlement);
 
     const source =
       input.direction === "btc_to_zmw"
         ? await this.#bitcoin.createInvoice({
             amountSats: input.sourceAmount,
-            expiresAt: input.expiresAt,
+            expiresAt: input.sourcePaymentExpiresAt,
             idempotencyKey: input.collectionIdempotencyKey,
           })
         : await this.#mobileMoney.collect({
@@ -216,67 +179,62 @@ export class FakeSettlementCoordinator implements BridgeEngine {
           });
 
     if (source.outcome !== "success" || !source.value) {
-      if (source.outcome === "failure") {
-        this.#inventory.release(reservationId);
-        this.#vault.delete(destinationLookupToken);
-        this.transition(settlement, "source_payment_failed", now, "SOURCE_SETUP_FAILED");
-        throw new BridgeSourceSetupError("SOURCE_SETUP_FAILED");
+      const conclusive = source.outcome === "failure";
+      settlement = await this.#repository.failSourceSetup(
+        settlement.id,
+        conclusive ? "failure" : "unknown",
+        new Date(),
+      );
+      if (conclusive && destinationToken) {
+        this.#vault.delete(destinationToken);
       }
-      this.transition(settlement, "manual_review", now, "SOURCE_SETUP_UNCERTAIN");
-      throw new BridgeSourceSetupError("SOURCE_SETUP_UNCERTAIN");
+      throw new BridgeSourceSetupError(
+        conclusive ? "SOURCE_SETUP_FAILED" : "SOURCE_SETUP_UNCERTAIN",
+      );
     }
 
-    const sourceReference = source.value.lookupReference;
-    settlement = {
-      ...this.transition(settlement, "awaiting_source_payment", now),
-      destinationLookupToken,
-      sourceReference,
-    };
-    this.#settlements.set(id, settlement);
+    settlement = await this.#repository.completeSourceSetup(
+      settlement.id,
+      source.value.lookupReference,
+      new Date(),
+    );
     const checkoutUrl =
       input.direction === "btc_to_zmw"
-        ? `https://treasury.invalid/lightning/${sourceReference}`
+        ? `https://treasury.invalid/lightning/${source.value.lookupReference}`
         : "checkoutUrl" in source.value
           ? source.value.checkoutUrl
           : "https://treasury.invalid/mobile-money";
-    const creation: BridgeCreation = {
+    return {
       checkoutUrl,
-      destinationLookupToken,
-      expiresAt: input.expiresAt,
+      destinationLookupToken: destinationToken,
+      expiresAt: input.sourcePaymentExpiresAt,
       payerInstructions:
         input.direction === "btc_to_zmw"
           ? "Pay the simulated operator Lightning invoice."
           : "Approve the simulated Lipila mobile-money collection.",
-      sourceReference,
+      sourceReference: source.value.lookupReference,
       settlement,
     };
-    this.#creationsByCollectionKey.set(input.collectionIdempotencyKey, creation);
-    this.#creationFingerprintsByCollectionKey.set(input.collectionIdempotencyKey, fingerprint);
-    return creation;
   }
 
-  read(settlementId: string): BridgeSettlement | undefined {
-    return this.#settlements.get(settlementId);
+  appendProviderEvent(event: NormalizedProviderEventInput) {
+    return this.#repository.appendProviderEvent(event);
   }
 
-  expireBeforeSourceSettlement(settlementId: string, now = new Date()): BridgeSettlement {
-    const settlement = this.required(settlementId);
-    if (
-      settlement.status !== "awaiting_source_payment" &&
-      settlement.status !== "source_payment_confirming"
-    ) {
-      throw new Error("Only an unsettled source leg can expire safely.");
+  async expireNextSourcePayment(now = new Date()): Promise<BridgeSettlement | null> {
+    const expired = await this.#repository.expireNextSourcePayment(now);
+    if (expired?.destinationTokenToDelete) {
+      this.#vault.delete(expired.destinationTokenToDelete);
     }
-    if (settlement.expiresAt.getTime() > now.getTime()) {
-      throw new Error("The source leg has not expired.");
+    return expired?.settlement ?? null;
+  }
+
+  async processNextProviderEvent(now = new Date()): Promise<BridgeSettlement | null> {
+    const applied = await this.#repository.processNextProviderEvent(now);
+    if (applied?.destinationTokenToDelete) {
+      this.#vault.delete(applied.destinationTokenToDelete);
     }
-    if (settlement.reservationId) {
-      this.#inventory.release(settlement.reservationId);
-    }
-    if (settlement.destinationLookupToken) {
-      this.#vault.delete(settlement.destinationLookupToken);
-    }
-    return this.transition(settlement, "expired", now, "SOURCE_EXPIRED");
+    return applied?.settlement ?? null;
   }
 
   async markSourceOutcome(
@@ -284,86 +242,100 @@ export class FakeSettlementCoordinator implements BridgeEngine {
     outcome: "pending" | "settled" | "failed" | "timeout" | "unknown",
     now = new Date(),
   ): Promise<BridgeSettlement> {
-    let settlement = this.required(settlementId);
-    if (
-      [
-        "source_payment_settled",
-        "destination_settlement_queued",
-        "destination_settlement_processing",
-        "settled",
-        "refund_required",
-        "refund_pending",
-        "refunded",
-      ].includes(settlement.status)
-    ) {
-      return settlement;
+    const settlement = await this.required(settlementId);
+    if (!settlement.sourceReference) {
+      throw new Error("Source setup has no opaque reference.");
     }
-    if (
-      settlement.status !== "awaiting_source_payment" &&
-      settlement.status !== "source_payment_confirming"
-    ) {
-      throw new Error("Source outcome is not legal in the current bridge state.");
-    }
-    if (outcome === "pending") {
-      return settlement.status === "source_payment_confirming"
-        ? settlement
-        : this.transition(settlement, "source_payment_confirming", now);
-    }
-    if (outcome === "failed") {
-      if (settlement.reservationId) {
-        this.#inventory.release(settlement.reservationId);
-      }
-      if (settlement.destinationLookupToken) {
-        this.#vault.delete(settlement.destinationLookupToken);
-      }
-      return this.transition(settlement, "source_payment_failed", now, "SOURCE_PAYMENT_FAILED");
-    }
-    if (outcome === "timeout" || outcome === "unknown") {
-      return this.transition(settlement, "manual_review", now, "SOURCE_OUTCOME_UNKNOWN");
-    }
-
-    settlement = this.transition(settlement, "source_payment_settled", now);
-    this.#inventory.credit(settlement.sourceAsset, settlement.sourceAmount);
-    this.#journal.append({
-      asset: settlement.sourceAsset,
-      entries: [
-        { account: "treasury_asset", amount: settlement.sourceAmount, side: "debit" },
-        { account: "source_collection_clearing", amount: settlement.sourceAmount, side: "credit" },
-      ],
-      exchangeGroupId: settlement.exchangeGroupId,
-      idempotencyKey: `${settlement.collectionIdempotencyKey}:journal`,
-      kind: "source_collection",
+    await this.appendProviderEvent({
+      id: randomUUID(),
+      normalizedStatus:
+        outcome === "settled"
+          ? "source_settled"
+          : outcome === "failed"
+            ? "failed"
+            : outcome === "pending"
+              ? "source_confirming"
+              : "unknown",
       occurredAt: now,
-      opaqueReference: settlement.sourceReference,
+      payloadHash: createHash("sha256")
+        .update(`${settlement.id}:${outcome}:${now.toISOString()}`)
+        .digest("hex"),
+      provider: "fake_treasury",
+      providerEventId: randomUUID(),
+      purgeAt: new Date(now.getTime() + 86_400_000),
+      receivedAt: now,
+      sourceReference: settlement.sourceReference,
     });
-    return this.transition(settlement, "destination_settlement_queued", now);
+    const processed = await this.processNextProviderEvent(now);
+    if (!processed) {
+      throw new Error("The source event was not processed.");
+    }
+    return processed;
+  }
+
+  async processNextDestination(now = new Date()): Promise<BridgeSettlement | null> {
+    const work = await this.#repository.claimDestinationSettlement(now, 30_000);
+    return work ? this.executeDestination(work, now) : null;
   }
 
   async processDestination(settlementId: string, now = new Date()): Promise<BridgeSettlement> {
-    let settlement = this.required(settlementId);
-    if (settlement.status === "settled") {
-      return settlement;
+    const current = await this.required(settlementId);
+    if (current.status === "settled") {
+      return current;
     }
-    if (settlement.status !== "destination_settlement_queued") {
+    if (
+      current.status !== "destination_settlement_queued" &&
+      current.status !== "destination_settlement_processing"
+    ) {
       throw new Error("Destination settlement requires conclusive source settlement.");
     }
-    const destination =
-      settlement.destinationLookupToken === null
-        ? null
-        : this.#vault.read(settlement.destinationLookupToken, now);
-    if (!destination) {
-      if (settlement.reservationId) {
-        this.#inventory.release(settlement.reservationId);
-      }
-      return this.transition(settlement, "refund_required", now, "DESTINATION_UNAVAILABLE");
+    const work = await this.#repository.claimDestinationSettlement(now, 30_000);
+    if (!work || work.settlement.id !== settlementId) {
+      throw new Error("Destination settlement work could not be claimed.");
     }
+    return this.executeDestination(work, now);
+  }
 
-    settlement = this.transition(settlement, "destination_settlement_processing", now);
-    settlement = {
-      ...settlement,
-      settlementAttemptCount: settlement.settlementAttemptCount + 1,
+  async retryDestination(settlementId: string, now = new Date()): Promise<BridgeSettlement> {
+    await this.#repository.requeueConclusiveDestinationFailure(settlementId, now);
+    return this.processDestination(settlementId, now);
+  }
+
+  read(settlementId: string) {
+    return this.#repository.read(settlementId);
+  }
+
+  async readOperationalStatus(): Promise<TreasuryOperationalStatus> {
+    const durable = await this.#repository.readStatus();
+    if (!this.#enabled) {
+      return {
+        bitcoin: {
+          available: false,
+          availableBalanceSats: 0n,
+          inboundCapacitySats: 0n,
+          outboundCapacitySats: 0n,
+        },
+        ...durable,
+        mobileMoney: { available: false, availableBalanceZmwMinor: 0n },
+      };
+    }
+    return {
+      bitcoin: await this.#bitcoin.readStatus(),
+      ...durable,
+      mobileMoney: await this.#mobileMoney.readStatus(),
     };
-    this.#settlements.set(settlement.id, settlement);
+  }
+
+  private async executeDestination(
+    work: DestinationSettlementWork,
+    now: Date,
+  ): Promise<BridgeSettlement> {
+    const token = work.destinationLookupToken;
+    const destination = token ? this.#vault.read(token, now) : null;
+    if (!destination) {
+      return this.#repository.recordDestinationUnavailable(work, now);
+    }
+    const settlement = work.settlement;
     const result =
       settlement.direction === "btc_to_zmw"
         ? destination.type === "mobile_money"
@@ -379,142 +351,52 @@ export class FakeSettlementCoordinator implements BridgeEngine {
             paymentRequest: fakeLightningInvoiceFor(destination),
           });
 
-    if (result.outcome === "timeout" || result.outcome === "unknown") {
-      return this.transition(settlement, "manual_review", now, "DESTINATION_OUTCOME_UNKNOWN");
-    }
-    if (result.outcome === "failure" || !result.value) {
-      if (settlement.reservationId) {
-        this.#inventory.release(settlement.reservationId);
-      }
-      return this.transition(
-        settlement,
-        "destination_settlement_failed",
+    if (result.outcome !== "success" || !result.value) {
+      return this.#repository.finalizeDestinationSettlement(
+        work,
+        {
+          outcome: result.outcome === "success" ? "failure" : result.outcome,
+          safeCode:
+            result.outcome === "timeout" || result.outcome === "unknown"
+              ? "DESTINATION_OUTCOME_UNKNOWN"
+              : "DESTINATION_SETTLEMENT_FAILED",
+        },
         now,
-        "DESTINATION_SETTLEMENT_FAILED",
       );
     }
 
-    if (!settlement.reservationId) {
-      throw new Error("Destination settlement has no liquidity reservation.");
-    }
-    this.#inventory.commit(settlement.reservationId);
-    this.#journal.append({
-      asset: settlement.destinationAsset,
-      entries: [
-        {
-          account: "destination_settlement_clearing",
-          amount: settlement.destinationAmount,
-          side: "debit",
-        },
-        {
-          account: "treasury_asset",
-          amount: settlement.destinationAmount,
-          side: "credit",
-        },
-      ],
-      exchangeGroupId: settlement.exchangeGroupId,
-      idempotencyKey: `${settlement.settlementIdempotencyKey}:journal`,
-      kind: "destination_settlement",
-      occurredAt: now,
-      opaqueReference: result.value.lookupReference,
-    });
-    if (settlement.destinationLookupToken) {
-      this.#vault.delete(settlement.destinationLookupToken);
-    }
-    settlement = {
-      ...settlement,
-      destinationReference: result.value.lookupReference,
-    };
-    this.#settlements.set(settlement.id, settlement);
-    const reconciled = await this.#reconciliation.reconcile(settlement, now);
-    if (reconciled.outcome === "matched") {
-      this.#lastSuccessfulReconciliationAt = reconciled.checkedAt;
-    }
-    return this.transition(settlement, "settled", now);
-  }
-
-  async retryDestination(settlementId: string, now = new Date()): Promise<BridgeSettlement> {
-    let settlement = this.required(settlementId);
-    if (settlement.status !== "destination_settlement_failed") {
-      throw new Error("Only a conclusively failed destination settlement can be retried.");
-    }
-    if (!settlement.reservationId) {
-      throw new Error("Destination retry has no reservation identity.");
-    }
-    const reservation = this.#inventory.reserve({
-      amount: settlement.destinationAmount,
-      asset: settlement.destinationAsset,
-      reservationId: settlement.reservationId,
-    });
-    if (!reservation) {
-      const unavailable = {
-        ...settlement,
-        failureCode: "LIQUIDITY_UNAVAILABLE",
-        updatedAt: now,
+    let reconciliation: ReconciliationResult;
+    try {
+      reconciliation = await this.#reconciliation.reconcile(settlement, now);
+    } catch {
+      reconciliation = {
+        checkedAt: now,
+        outcome: "unavailable",
+        safeCode: "RECONCILIATION_UNAVAILABLE",
       };
-      this.#settlements.set(unavailable.id, unavailable);
-      return unavailable;
     }
-    settlement = this.transition(settlement, "destination_settlement_queued", now);
-    return this.processDestination(settlement.id, now);
+    const completed = await this.#repository.finalizeDestinationSettlement(
+      work,
+      {
+        opaqueReference: result.value.lookupReference,
+        outcome: "success",
+        reconciliation,
+      },
+      now,
+    );
+    if (token) {
+      this.#vault.delete(token);
+    }
+    return completed;
   }
 
-  requireRefund(settlementId: string, now = new Date()): BridgeSettlement {
-    const settlement = this.required(settlementId);
-    if (settlement.reservationId) {
-      this.#inventory.release(settlement.reservationId);
-    }
-    if (settlement.destinationLookupToken) {
-      this.#vault.delete(settlement.destinationLookupToken);
-    }
-    return this.transition(settlement, "refund_required", now, "REFUND_REQUIRED");
-  }
-
-  async readOperationalStatus(): Promise<TreasuryOperationalStatus> {
-    const active = [...this.#settlements.values()];
-    const liability = (asset: "BTC" | "ZMW") =>
-      active
-        .filter(
-          (item) =>
-            item.destinationAsset === asset &&
-            ![
-              "settled",
-              "refunded",
-              "source_payment_failed",
-              "expired",
-              "liquidity_unavailable",
-            ].includes(item.status),
-        )
-        .reduce((total, item) => total + item.destinationAmount, 0n);
-    return {
-      bitcoin: await this.#bitcoin.readStatus(),
-      lastSuccessfulReconciliationAt: this.#lastSuccessfulReconciliationAt,
-      manualReview: active.filter((item) => item.status === "manual_review").length,
-      mobileMoney: await this.#mobileMoney.readStatus(),
-      refundRequired: active.filter((item) => item.status === "refund_required").length,
-      reservedBtcSats: this.#inventory.reserved("BTC"),
-      reservedZmwMinor: this.#inventory.reserved("ZMW"),
-      unsettledBtcLiabilitySats: liability("BTC"),
-      unsettledZmwLiabilityMinor: liability("ZMW"),
-      waitingDestinationSettlement: active.filter((item) =>
-        [
-          "source_payment_settled",
-          "destination_settlement_queued",
-          "destination_settlement_processing",
-          "destination_settlement_failed",
-        ].includes(item.status),
-      ).length,
-      waitingSourcePayment: active.filter((item) =>
-        ["awaiting_source_payment", "source_payment_confirming"].includes(item.status),
-      ).length,
-    };
-  }
-
-  private required(settlementId: string): BridgeSettlement {
-    const settlement = this.#settlements.get(settlementId);
+  private async required(settlementId: string): Promise<BridgeSettlement> {
+    const settlement = await this.#repository.read(settlementId);
     if (!settlement) {
       throw new Error("Bridge settlement was not found.");
     }
     return settlement;
   }
 }
+
+export { RepositoryBackedSettlementCoordinator as FakeSettlementCoordinator };

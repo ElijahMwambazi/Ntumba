@@ -8,12 +8,14 @@ import { buildInternalApp } from "./internal/app.js";
 import { startJobs } from "./jobs.js";
 import { createOperationalSnapshotReader } from "./observability.js";
 import { PostgresPaymentStore } from "./postgres-payment-store.js";
+import { PostgresSettlementSagaRepository } from "./postgres-settlement-saga-repository.js";
 import { createFakeTreasuryRuntime } from "./treasury.js";
 
 const config = loadConfig();
 const { database, pool } = createDatabase(config.DATABASE_URL);
 const store = new PostgresPaymentStore(database, config);
-const treasury = createFakeTreasuryRuntime(config);
+const sagaRepository = new PostgresSettlementSagaRepository(database, config);
+const treasury = createFakeTreasuryRuntime(config, sagaRepository);
 const metrics = new NtumbaMetrics({
   bitcoinRailMode: config.BITCOIN_LIQUIDITY_RAIL_MODE,
   buildCommit: config.NTUMBA_BUILD_COMMIT,
@@ -49,7 +51,7 @@ app.addHook("onClose", async () => {
 });
 
 if (config.JOBS_ENABLED) {
-  const jobs = await startJobs(config.DATABASE_URL, app.log, metrics);
+  const jobs = await startJobs(config.DATABASE_URL, app.log, treasury.bridgeEngine, metrics);
   app.addHook("onClose", async () => {
     await jobs.stop();
   });

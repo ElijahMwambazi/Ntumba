@@ -26,10 +26,10 @@ Provider adapters must scrub upstream errors before returning them.
 The server does see a merchant destination transiently during intent creation. TLS,
 restricted process access and careful crash/debug tooling are therefore required.
 
-The outbox is intentionally payload-free. The current destination vault is development-only,
+The source and destination outboxes are intentionally payload-free. The current destination vault is development-only,
 in-memory and expiring. Production requires provider-issued opaque beneficiary tokenization or a
 reviewed short-lived envelope-encrypted store with automatic deletion. Destination loss after
-source settlement creates a refund/manual-review obligation.
+source settlement creates exactly one durable refund obligation.
 
 ## Provider callbacks
 

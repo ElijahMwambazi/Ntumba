@@ -33,12 +33,13 @@
   terminal/expired values.
 - HMAC-signed fake-treasury callback endpoint with five-minute timestamp tolerance, raw-body
   verification, intent/amount/asset matching and replay-safe append-only normalized event storage.
-- Payload-free source-intent outbox staged atomically with each bridge intent, with safe attempt
-  metadata, idempotent client-assisted retry and transactional completion of opaque provider data.
+- Payment intent, bridge, both legs, reservation, waiting obligation and payload-free source
+  outbox staged in one transaction before the fake source call.
 - Separate direct-Lightning contract that preserves merchant-owned invoices.
 - PostgreSQL quote/payment-intent adapter containing only safe operational fields.
-- Forward-only treasury schema for bridge legs, reservations, obligations/attempts, append-only
-  balanced journal entries, reconciliation and refunds.
+- Repository-backed PostgreSQL saga for bridge legs, reservations, obligations/attempts,
+  row-locked provider events, leased destination work, append-only balanced journal entries,
+  reconciliation review and exactly-once refund obligations.
 - Normalized provider-event schema with no raw callback body.
 - Expiry/purge timestamps, opportunistic purge and hourly pg-boss purge job.
 - Disabled-by-default separate internal Fastify listener with bearer-protected aggregate health,
@@ -62,10 +63,9 @@
 - Live, freshness-checked BTC/ZMW rates.
 - Voltage or Lipila integration, credentials or network calls.
 - Any live liquidity rail, mainnet transaction or real fund movement.
-- Provider-event processing, status polling and reconciliation that advance persisted states.
-- Durable coordinator persistence and autonomous source/destination processing. Production
-  destination recovery requires provider tokenization or a reviewed short-lived envelope-encrypted
-  store.
+- Live provider status polling and real reconciliation.
+- Production destination recovery using provider tokenization or a reviewed short-lived
+  envelope-encrypted store.
 - Live Lightning-address resolution or merchant-wallet settlement verification.
 - Independently verifiable direct-payment receipts.
 - Durable, multi-instance public request storage. The current opaque public request store is

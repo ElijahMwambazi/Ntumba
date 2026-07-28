@@ -6,12 +6,12 @@
    destination. Reference is optional.
 2. Ntumba creates fake-treasury options compatible with the receive asset. The merchant does
    not choose the payer method.
-3. For bridge directions, the server atomically stages a `created` intent and payload-free outbox
-   row. The coordinator reserves destination liquidity and places the destination in its
-   development-only expiring vault before preparing source collection.
+3. For bridge directions, the server atomically stages the intent, bridge, two legs, destination
+   reservation, waiting obligation and payload-free source outbox. It then places the destination
+   in its development-only vault before preparing source collection outside the transaction.
 4. Collection and settlement use separate idempotency keys. Ntumba stores only opaque
-   references/tokens and closes the outbox row; failed source setup can resume the same staged
-   intent when the client resubmits the destination and original key.
+   references/tokens. Conclusive setup failure releases safely; timeout or unknown preserves the
+   original collection action in manual review without blind retry.
 5. For direct Bitcoin, the server obtains or passes through a merchant-owned invoice.
 6. The server publishes a short-lived checkout projection behind an opaque `publicId`; the
    browser stores a masked local summary behind an unrelated `localId`.
@@ -74,9 +74,9 @@ The payer's mobile number is collected by the provider, not Ntumba.
 5. A new provider/event ID is appended. An identical retry is acknowledged as a duplicate, while
    the same ID with different bytes is rejected.
 
-This ingestion milestone deliberately leaves `processed_at` empty and does not advance payment
-status. Status processing and reconciliation remain separate work so transitions can be applied
-transactionally and unknown outcomes can enter manual review.
+A PostgreSQL worker row-locks an unprocessed event and atomically advances source state, journal,
+obligation, destination outbox and `processed_at`. A leased destination worker records its attempt
+before the fake rail call and transactionally finalizes the result afterward.
 
 ## State model
 

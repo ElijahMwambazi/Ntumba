@@ -4,6 +4,7 @@ import type { NtumbaDatabase } from "./client.js";
 export interface PurgeResult {
   bridgeSettlementLegs: number;
   bridgeSettlements: number;
+  destinationSettlementOutbox: number;
   liquidityReservations: number;
   paymentIntents: number;
   providerIntentOutbox: number;
@@ -22,6 +23,9 @@ export async function purgeExpiredOperationalData(
   return database.transaction(async (transaction) => {
     const settlementAttempts = await transaction.execute(sql`
       DELETE FROM settlement_attempts WHERE purge_at <= ${now} RETURNING id
+    `);
+    const destinationSettlementOutbox = await transaction.execute(sql`
+      DELETE FROM destination_settlement_outbox WHERE purge_at <= ${now} RETURNING id
     `);
     const reconciliationResults = await transaction.execute(sql`
       DELETE FROM reconciliation_results WHERE purge_at <= ${now} RETURNING id
@@ -107,6 +111,7 @@ export async function purgeExpiredOperationalData(
     return {
       bridgeSettlementLegs: bridgeSettlementLegs.rowCount ?? 0,
       bridgeSettlements: bridgeSettlements.rowCount ?? 0,
+      destinationSettlementOutbox: destinationSettlementOutbox.rowCount ?? 0,
       liquidityReservations: liquidityReservations.rowCount ?? 0,
       paymentIntents: paymentIntents.rowCount ?? 0,
       providerIntentOutbox: providerIntentOutbox.rowCount ?? 0,

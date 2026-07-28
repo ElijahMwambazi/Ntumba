@@ -4,5 +4,6 @@ export * from "./inventory.js";
 export * from "./journal.js";
 export * from "./rate.js";
 export * from "./reconciliation.js";
+export * from "./repository.js";
 export * from "./types.js";
 export * from "./vault.js";

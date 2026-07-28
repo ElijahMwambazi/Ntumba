@@ -61,6 +61,25 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Extend private aggregate metrics and the read-only dashboard with fake treasury state.
 - [x] Preserve merchant-owned direct Bitcoin invoices without an operator treasury hop.
 
+## Phase 3.1 — Durable fake settlement saga
+
+- [x] Replace authoritative coordinator memory with focused in-memory and PostgreSQL saga
+      repositories for bridges, legs, reservations, obligations, attempts, journals,
+      reconciliation, refunds, provider events and destination outbox work.
+- [x] Persist payment intent, bridge, both legs, destination reservation, waiting obligation and
+      payload-free source outbox atomically before fake source setup.
+- [x] Process normalized source events and destination obligations transactionally with row locks,
+      leases, immutable balanced journal entries and stable external idempotency keys.
+- [x] Recover safely across coordinator restarts, including duplicate callbacks/workers,
+      post-external-success crashes and missing in-memory destinations producing one refund
+      obligation.
+- [x] Separate quote, source-payment, destination-vault and operational retention deadlines.
+- [x] Correct fake Voltage/LND and Lipila balance, capacity, duplicate and uncertain-outcome
+      behavior while keeping fake mode disabled in production.
+- [x] Persist reconciliation mismatches as settled payments with a separate operator-review flag.
+- [x] Apply the forward-only durability migration in disposable PostgreSQL and verify constraints,
+      journal immutability/balance, rollback and restart scenarios in CI.
+
 ## Phase 4 — Controlled rail integrations
 
 - [ ] Add a disabled-by-default Voltage MutinyNet adapter using least-privilege LND credentials

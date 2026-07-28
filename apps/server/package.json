@@ -8,6 +8,7 @@
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "test": "vitest run src",
+    "test:integration": "vitest run src/postgres-settlement-saga.integration.test.ts",
     "typecheck": "tsc -b"
   },
   "dependencies": {

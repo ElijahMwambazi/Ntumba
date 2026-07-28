@@ -26,6 +26,7 @@
     "lint": "biome check .",
     "test": "node scripts/repository-baseline.test.mjs && node --experimental-strip-types scripts/hybrid-custody-architecture.test.ts && node scripts/observability-architecture.test.mjs && yarn workspace @ntumba/config test && yarn workspace @ntumba/domain test && yarn workspace @ntumba/observability test && yarn workspace @ntumba/providers test && yarn workspace @ntumba/treasury test && yarn workspace @ntumba/server test && yarn workspace @ntumba/web test",
     "test:e2e": "playwright test",
+    "test:integration": "yarn workspace @ntumba/server test:integration",
     "test:pwa": "playwright test --config playwright.pwa.config.ts",
     "test:pwa-assets": "node scripts/pwa-assets.test.mjs",
     "typecheck": "yarn workspaces foreach -At --topological-dev run typecheck"

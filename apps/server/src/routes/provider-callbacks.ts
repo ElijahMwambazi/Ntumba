@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { NtumbaMetrics } from "@ntumba/observability";
 import { type BridgeEventVerifier, ProviderCallbackVerificationError } from "@ntumba/providers";
+import type { BridgeEngine } from "@ntumba/treasury";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { purgeWithMetrics } from "../observability.js";
@@ -33,6 +34,7 @@ function callbackMatchesQuote(
 
 export function providerCallbackRoutes(
   bridgeEventVerifier: BridgeEventVerifier,
+  bridgeEngine: BridgeEngine,
   store: PaymentStore,
   metrics?: NtumbaMetrics,
 ): FastifyPluginAsyncZod {
@@ -91,25 +93,38 @@ export function providerCallbackRoutes(
           throw app.httpErrors.conflict("The callback does not match the payment intent.");
         }
 
-        const result = await store.appendProviderEvent({
+        if (
+          !["source_pending", "source_confirming", "source_settled", "failed", "unknown"].includes(
+            callback.status,
+          )
+        ) {
+          metrics?.recordCallbackRejected("mismatch");
+          throw app.httpErrors.conflict("The callback is not a source-leg event.");
+        }
+        const normalizedStatus = callback.status as
+          | "source_pending"
+          | "source_confirming"
+          | "source_settled"
+          | "failed"
+          | "unknown";
+        const result = await bridgeEngine.appendProviderEvent({
           id: randomUUID(),
-          normalizedStatus: callback.status,
+          normalizedStatus,
           occurredAt: callback.occurredAt,
           payloadHash: callback.payloadHash,
-          paymentIntentId: intent.id,
-          processedAt: null,
           provider: "fake_treasury",
           providerEventId: callback.eventId,
           purgeAt: intent.purgeAt,
           receivedAt,
+          sourceReference: callback.providerReference,
         });
-        if (result.outcome === "conflict") {
+        if (result === "conflict") {
           metrics?.recordCallbackRejected("conflict");
           throw app.httpErrors.conflict(
             "The provider event ID was already used for another event.",
           );
         }
-        if (result.outcome === "duplicate") {
+        if (result === "duplicate") {
           metrics?.recordCallback("duplicate");
           return reply.status(200).send({ status: "duplicate" });
         }

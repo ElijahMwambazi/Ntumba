@@ -47,6 +47,7 @@ export interface OperationalSnapshot {
     lastSuccessfulReconciliationAt: Date | null;
     lightningAvailable: boolean;
     manualReview: number;
+    reconciliationReviewRequired: number;
     mobileMoneyAvailable: boolean;
     mobileMoneyBalanceZmwMinor: bigint;
     outboundCapacitySats: bigint;
@@ -152,6 +153,7 @@ export function emptyOperationalSnapshot(): OperationalSnapshot {
       lastSuccessfulReconciliationAt: null,
       lightningAvailable: false,
       manualReview: 0,
+      reconciliationReviewRequired: 0,
       mobileMoneyAvailable: false,
       mobileMoneyBalanceZmwMinor: 0n,
       outboundCapacitySats: 0n,
@@ -231,6 +233,7 @@ export class NtumbaMetrics {
 
   render(snapshot: OperationalSnapshot, databaseAvailable: boolean, now = new Date()): string {
     const lines: string[] = [];
+    const fakeTreasuryVisible = this.#context.bridgeMode === "fake";
     metric(
       lines,
       METRIC_NAMES.serverProcessUp,
@@ -482,10 +485,10 @@ export class NtumbaMetrics {
       "gauge",
     );
     for (const [capability, state] of [
-      ["provider_mode", "fake"],
+      ["provider_mode", this.#context.bridgeMode === "fake" ? "fake" : "disabled"],
       ["live_rail", "not_configured"],
-      ["collection", "development_only"],
-      ["settlement", "development_only"],
+      ["collection", this.#context.bridgeMode === "fake" ? "development_only" : "not_configured"],
+      ["settlement", this.#context.bridgeMode === "fake" ? "development_only" : "not_configured"],
       ["provider_reported_limits", "unavailable"],
       ["last_real_settlement", "never"],
     ]) {
@@ -508,7 +511,9 @@ export class NtumbaMetrics {
       "gauge",
     );
     lines.push(
-      `${METRIC_NAMES.lightningNodeAvailable} ${snapshot.treasury.lightningAvailable ? 1 : 0}`,
+      `${METRIC_NAMES.lightningNodeAvailable} ${
+        fakeTreasuryVisible && snapshot.treasury.lightningAvailable ? 1 : 0
+      }`,
     );
     metric(
       lines,
@@ -516,14 +521,22 @@ export class NtumbaMetrics {
       "Deterministic fake Bitcoin treasury balance in satoshis.",
       "gauge",
     );
-    lines.push(`${METRIC_NAMES.bitcoinTreasuryBalance} ${snapshot.treasury.bitcoinBalanceSats}`);
+    lines.push(
+      `${METRIC_NAMES.bitcoinTreasuryBalance} ${
+        fakeTreasuryVisible ? snapshot.treasury.bitcoinBalanceSats : 0
+      }`,
+    );
     metric(
       lines,
       METRIC_NAMES.lightningInboundCapacity,
       "Deterministic fake inbound Lightning capacity in satoshis.",
       "gauge",
     );
-    lines.push(`${METRIC_NAMES.lightningInboundCapacity} ${snapshot.treasury.inboundCapacitySats}`);
+    lines.push(
+      `${METRIC_NAMES.lightningInboundCapacity} ${
+        fakeTreasuryVisible ? snapshot.treasury.inboundCapacitySats : 0
+      }`,
+    );
     metric(
       lines,
       METRIC_NAMES.lightningOutboundCapacity,
@@ -531,7 +544,9 @@ export class NtumbaMetrics {
       "gauge",
     );
     lines.push(
-      `${METRIC_NAMES.lightningOutboundCapacity} ${snapshot.treasury.outboundCapacitySats}`,
+      `${METRIC_NAMES.lightningOutboundCapacity} ${
+        fakeTreasuryVisible ? snapshot.treasury.outboundCapacitySats : 0
+      }`,
     );
     metric(
       lines,
@@ -540,7 +555,9 @@ export class NtumbaMetrics {
       "gauge",
     );
     lines.push(
-      `${METRIC_NAMES.mobileMoneyAvailable} ${snapshot.treasury.mobileMoneyAvailable ? 1 : 0}`,
+      `${METRIC_NAMES.mobileMoneyAvailable} ${
+        fakeTreasuryVisible && snapshot.treasury.mobileMoneyAvailable ? 1 : 0
+      }`,
     );
     metric(
       lines,
@@ -549,7 +566,9 @@ export class NtumbaMetrics {
       "gauge",
     );
     lines.push(
-      `${METRIC_NAMES.mobileMoneyTreasuryBalance} ${snapshot.treasury.mobileMoneyBalanceZmwMinor}`,
+      `${METRIC_NAMES.mobileMoneyTreasuryBalance} ${
+        fakeTreasuryVisible ? snapshot.treasury.mobileMoneyBalanceZmwMinor : 0
+      }`,
     );
     metric(
       lines,
@@ -582,6 +601,7 @@ export class NtumbaMetrics {
       ["awaiting_destination_settlement", snapshot.treasury.waitingDestinationSettlement],
       ["refund_required", snapshot.treasury.refundRequired],
       ["manual_review", snapshot.treasury.manualReview],
+      ["reconciliation_review_required", snapshot.treasury.reconciliationReviewRequired],
     ] as const) {
       lines.push(`${METRIC_NAMES.treasuryPipeline}${labels({ stage })} ${value}`);
     }

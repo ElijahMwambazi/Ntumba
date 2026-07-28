@@ -149,6 +149,7 @@ export async function buildApp(
   await app.register(
     providerCallbackRoutes(
       resolvedDependencies.bridgeEventVerifier,
+      resolvedDependencies.bridgeEngine,
       resolvedDependencies.store,
       metrics,
     ),

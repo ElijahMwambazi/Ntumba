@@ -22,6 +22,13 @@
       "when": 1785264688567,
       "tag": "0002_serious_morph",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785300000000,
+      "tag": "0003_durable_fake_saga",
+      "breakpoints": true
     }
   ]
 }

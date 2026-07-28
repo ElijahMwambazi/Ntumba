@@ -40,7 +40,9 @@ const configSchema = z
     QUOTE_TTL_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
     RATE_PROVIDER_MODE: z.literal("fake").default("fake"),
     SERVE_WEB: booleanString,
-    SETTLEMENT_DESTINATION_TTL_SECONDS: z.coerce.number().int().min(10).max(600).default(300),
+    SOURCE_PAYMENT_TTL_SECONDS: z.coerce.number().int().min(30).max(3_600).default(180),
+    SETTLEMENT_CALLBACK_GRACE_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
+    SETTLEMENT_DESTINATION_TTL_SECONDS: z.coerce.number().int().min(40).max(7_200).default(300),
     STATIC_BTC_ZMW_RATE: z.string().default("1800000.00"),
     VARIABLE_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(0),
   })
@@ -65,6 +67,17 @@ const configSchema = z
         code: "custom",
         message: "The fake bridge engine cannot be enabled in production.",
         path: ["BRIDGE_ENGINE_MODE"],
+      });
+    }
+    if (
+      config.SETTLEMENT_DESTINATION_TTL_SECONDS <
+      config.SOURCE_PAYMENT_TTL_SECONDS + config.SETTLEMENT_CALLBACK_GRACE_SECONDS
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "SETTLEMENT_DESTINATION_TTL_SECONDS must cover source expiry plus callback processing grace.",
+        path: ["SETTLEMENT_DESTINATION_TTL_SECONDS"],
       });
     }
   });

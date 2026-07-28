@@ -43,6 +43,17 @@ Payment safety, privacy, recoverability and operator clarity are product feature
   Live rail work requires an explicit roadmap milestone, reviewed contracts and test credentials.
 - Never introduce selectable `voltage`, `lipila`, `sandbox`, `mainnet` or `live` modes while the
   fake-only gate is in force.
+- Bridge lifecycle authority is the settlement saga repository, never coordinator `Map`s. Runtime
+  uses PostgreSQL; isolated tests may use `InMemorySettlementSagaRepository`.
+- Provider-event application and destination finalization must commit state, obligations,
+  reservation changes, journal entries and outbox completion atomically. External rail calls stay
+  outside database transactions and always reuse the original leg idempotency key.
+- The destination vault remains intentionally non-durable. If it is missing after source value has
+  settled, create one durable refund obligation and enter `refund_required`; never persist the raw
+  destination to avoid that outcome.
+- Quote validity, source-payment expiry, destination-vault retention and operational retention are
+  separate deadlines. Destination retention must cover source expiry plus callback-processing
+  grace.
 - Keep operator health/metrics on the disabled-by-default internal listener. Never add operator
   routes or credentials to the merchant PWA or public API listener.
 - Metrics use aggregate counts, bounded labels and registered route templates only. Never label or

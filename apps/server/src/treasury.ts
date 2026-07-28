@@ -2,14 +2,20 @@ import type { NtumbaConfig } from "@ntumba/config";
 import {
   DeterministicFakeReconciliationService,
   FakeLipilaMobileMoneyTreasury,
-  FakeSettlementCoordinator,
   FakeVoltageLndTreasury,
-  InMemoryLiquidityInventory,
   InMemorySettlementDestinationVault,
-  InMemoryTreasuryJournal,
+  InMemorySettlementSagaRepository,
+  RepositoryBackedSettlementCoordinator,
+  type SettlementSagaRepository,
 } from "@ntumba/treasury";
 
-export function createFakeTreasuryRuntime(config: NtumbaConfig) {
+export function createFakeTreasuryRuntime(
+  config: NtumbaConfig,
+  repository: SettlementSagaRepository = new InMemorySettlementSagaRepository({
+    BTC: config.FAKE_BITCOIN_TREASURY_BALANCE_SATS,
+    ZMW: config.FAKE_LIPILA_BALANCE_ZMW_MINOR,
+  }),
+) {
   const bitcoin = new FakeVoltageLndTreasury({
     available: true,
     availableBalanceSats: config.FAKE_BITCOIN_TREASURY_BALANCE_SATS,
@@ -20,19 +26,14 @@ export function createFakeTreasuryRuntime(config: NtumbaConfig) {
     available: true,
     availableBalanceZmwMinor: config.FAKE_LIPILA_BALANCE_ZMW_MINOR,
   });
-  const inventory = new InMemoryLiquidityInventory({
-    BTC: config.FAKE_BITCOIN_TREASURY_BALANCE_SATS,
-    ZMW: config.FAKE_LIPILA_BALANCE_ZMW_MINOR,
-  });
   const vault = new InMemorySettlementDestinationVault();
-  const journal = new InMemoryTreasuryJournal();
-  const bridgeEngine = new FakeSettlementCoordinator({
+  const bridgeEngine = new RepositoryBackedSettlementCoordinator({
     bitcoin,
-    inventory,
-    journal,
+    enabled: config.BRIDGE_ENGINE_MODE === "fake",
     mobileMoney,
     reconciliation: new DeterministicFakeReconciliationService(),
+    repository,
     vault,
   });
-  return { bitcoin, bridgeEngine, inventory, journal, mobileMoney, vault };
+  return { bitcoin, bridgeEngine, mobileMoney, repository, vault };
 }

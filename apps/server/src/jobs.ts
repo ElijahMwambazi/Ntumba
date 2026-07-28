@@ -1,5 +1,6 @@
 import { createDatabase, purgeExpiredOperationalData } from "@ntumba/database";
 import type { NtumbaMetrics } from "@ntumba/observability";
+import type { BridgeEngine } from "@ntumba/treasury";
 import type { FastifyBaseLogger } from "fastify";
 import { PgBoss } from "pg-boss";
 
@@ -10,6 +11,7 @@ export interface RunningJobs {
 export async function startJobs(
   connectionString: string,
   logger: FastifyBaseLogger,
+  bridgeEngine: BridgeEngine,
   metrics?: NtumbaMetrics,
 ): Promise<RunningJobs> {
   const boss = new PgBoss(connectionString);
@@ -21,7 +23,20 @@ export async function startJobs(
 
   await boss.start();
   await boss.createQueue("purge-operational-data");
+  await boss.createQueue("process-provider-events");
+  await boss.createQueue("process-destination-settlements");
+  await boss.createQueue("expire-source-payments");
   await boss.schedule("purge-operational-data", "17 * * * *", {}, { tz: "Africa/Lusaka" });
+  await boss.schedule("process-provider-events", "* * * * *", {}, { tz: "Africa/Lusaka" });
+  await boss.schedule(
+    "process-destination-settlements",
+    "* * * * *",
+    {},
+    {
+      tz: "Africa/Lusaka",
+    },
+  );
+  await boss.schedule("expire-source-payments", "* * * * *", {}, { tz: "Africa/Lusaka" });
   await boss.work("purge-operational-data", async () => {
     try {
       const purged = await purgeExpiredOperationalData(database, new Date());
@@ -35,6 +50,21 @@ export async function startJobs(
     } catch (error) {
       metrics?.recordPurgeFailure("job");
       throw error;
+    }
+  });
+  await boss.work("process-provider-events", async () => {
+    while (await bridgeEngine.processNextProviderEvent(new Date())) {
+      // The repository claims one event transactionally on each pass.
+    }
+  });
+  await boss.work("process-destination-settlements", async () => {
+    while (await bridgeEngine.processNextDestination(new Date())) {
+      // The repository lease and rail idempotency make restart recovery safe.
+    }
+  });
+  await boss.work("expire-source-payments", async () => {
+    while (await bridgeEngine.expireNextSourcePayment(new Date())) {
+      // Source expiry releases only unmoved destination liquidity.
     }
   });
 

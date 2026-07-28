@@ -3,7 +3,7 @@
 ## Layers
 
 - Domain tests cover integer money, direction-aware fees, legal two-leg states and retention.
-- Treasury tests cover reservation/release, insufficient liquidity, source-before-destination,
+- Treasury tests cover repository-backed reservation/release, insufficient liquidity, source-before-destination,
   distinct/reused leg idempotency, duplicate prevention, external uncertainty, asset-specific
   journal balance, refund-required handling and destination-vault expiry/deletion.
 - Provider tests cover signed callback normalization/timestamp rejection and direct
@@ -45,8 +45,8 @@ yarn test:e2e
 yarn audit:dependencies
 ```
 
-`yarn db:generate` validates the Drizzle model. `yarn db:migrate` must be run against a disposable
-development PostgreSQL database to validate the forward-only migration, positive integer checks,
+`yarn db:generate` validates the Drizzle model. `yarn test:integration` applies all migrations to a
+disposable PostgreSQL database and validates positive integer checks,
 append-only triggers and deferred per-asset balance enforcement.
 
 ## Continuous integration
@@ -65,8 +65,8 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - Quote requests do not require or return merchant personal data.
 - ZMW is ngwee and Bitcoin is satoshis; no floating-point money.
 - Duplicate idempotency key returns one logical bridge intent.
-- Source setup failure leaves one staged intent and payload-free outbox row; retry completes that same
-  intent without persisting the destination.
+- Conclusive source setup failure releases the reservation and deletes the destination; uncertain
+  setup preserves the original collection action in manual review without blind retry.
 - Destination is absent from stored intent and response.
 - Raw callback body is verified in memory and only a hash/normalized event can persist.
 - Stale/tampered signatures, amount mismatches and conflicting event-ID replays cannot persist.
@@ -76,6 +76,10 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - Collection and settlement keys are distinct; confirmed retries reuse the settlement key.
 - Unknown/timeout outcomes enter manual review and are not blindly retried.
 - A missing destination after source settlement enters refund-required.
+- Coordinator restarts preserve durable creation, normalized events, queued obligations and
+  accounting; duplicate callbacks/workers and post-external-success crashes cannot double-apply.
+- PostgreSQL tests reject journal mutation, unbalanced commits, zero amounts and duplicate
+  mappings, and prove failed event application rolls back journal and obligation changes.
 - Journal transactions balance debit/credit independently for BTC and ZMW.
 - Direct invoice is merchant-owned and is never substituted.
 - Direct settlement remains unverified without evidence.

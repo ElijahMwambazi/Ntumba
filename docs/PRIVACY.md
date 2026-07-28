@@ -27,15 +27,16 @@ not write or log the destination.
 
 Production automatic settlement requires either provider-issued opaque beneficiary tokenization
 or a reviewed short-lived envelope-encrypted destination store with automatic deletion. The
-current vault is non-durable: if it disappears after source settlement, the intent must enter
-`refund_required` or `manual_review`, never `settled`.
+current vault is non-durable: if it disappears after source settlement, the saga releases unmoved
+destination liquidity, creates one durable refund obligation and enters `refund_required`, never
+`settled`.
 
 Raw merchant destinations are not placed in route parameters, query strings or URL fragments.
 
 ## Persisted server data
 
 - Opaque payment-intent and quote IDs.
-- Opaque source/destination references and destination-vault token.
+- Opaque source/destination references, destination-vault token, leases and idempotency keys.
 - Direction, asset identifiers and integer ngwee/satoshi amounts.
 - Separate collection/settlement idempotency keys and normalized status.
 - Created, updated, expiry and purge timestamps.

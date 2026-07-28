@@ -1,5 +1,6 @@
 import {
   bigint,
+  boolean,
   index,
   integer,
   pgEnum,
@@ -71,6 +72,7 @@ export const liquidityReservationStatus = pgEnum("liquidity_reservation_status",
   "expired",
 ]);
 export const settlementObligationStatus = pgEnum("settlement_obligation_status", [
+  "waiting_source",
   "queued",
   "processing",
   "settled",
@@ -228,6 +230,16 @@ export const bridgeSettlements = pgTable(
     exchangeGroupId: uuid("exchange_group_id").notNull(),
     failureCode: text("failure_code"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    sourcePaymentExpiresAt: timestamp("source_payment_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    destinationExpiresAt: timestamp("destination_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    creationFingerprint: text("creation_fingerprint").notNull(),
+    reconciliationReviewRequired: boolean("reconciliation_review_required")
+      .default(false)
+      .notNull(),
     purgeAt: timestamp("purge_at", { withTimezone: true }).notNull(),
     ...timestamps,
   },
@@ -236,6 +248,7 @@ export const bridgeSettlements = pgTable(
     uniqueIndex("bridge_settlements_collection_key_uidx").on(table.collectionIdempotencyKey),
     uniqueIndex("bridge_settlements_settlement_key_uidx").on(table.settlementIdempotencyKey),
     index("bridge_settlements_status_idx").on(table.status),
+    index("bridge_settlements_source_expiry_idx").on(table.sourcePaymentExpiresAt),
     index("bridge_settlements_purge_at_idx").on(table.purgeAt),
   ],
 );
@@ -261,6 +274,7 @@ export const bridgeSettlementLegs = pgTable(
   (table) => [
     uniqueIndex("bridge_settlement_legs_kind_uidx").on(table.bridgeSettlementId, table.kind),
     uniqueIndex("bridge_settlement_legs_idempotency_uidx").on(table.idempotencyKey),
+    uniqueIndex("bridge_settlement_legs_rail_reference_uidx").on(table.rail, table.opaqueReference),
     index("bridge_settlement_legs_purge_at_idx").on(table.purgeAt),
   ],
 );
@@ -334,8 +348,33 @@ export const settlementAttempts = pgTable(
       table.settlementObligationId,
       table.attemptNumber,
     ),
-    index("settlement_attempts_idempotency_idx").on(table.idempotencyKey),
+    uniqueIndex("settlement_attempts_idempotency_uidx").on(table.idempotencyKey),
     index("settlement_attempts_purge_at_idx").on(table.purgeAt),
+  ],
+);
+
+export const destinationSettlementOutbox = pgTable(
+  "destination_settlement_outbox",
+  {
+    id: uuid("id").primaryKey(),
+    settlementObligationId: uuid("settlement_obligation_id")
+      .notNull()
+      .references(() => settlementObligations.id),
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull(),
+    leaseToken: uuid("lease_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    purgeAt: timestamp("purge_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("destination_settlement_outbox_obligation_uidx").on(table.settlementObligationId),
+    index("destination_settlement_outbox_due_idx").on(
+      table.processedAt,
+      table.availableAt,
+      table.leaseExpiresAt,
+    ),
+    index("destination_settlement_outbox_purge_at_idx").on(table.purgeAt),
   ],
 );
 
@@ -381,6 +420,7 @@ export const reconciliationResults = pgTable(
       .references(() => bridgeSettlements.id),
     outcome: reconciliationOutcome("outcome").notNull(),
     safeCode: text("safe_code"),
+    reviewRequired: boolean("review_required").default(false).notNull(),
     checkedAt: timestamp("checked_at", { withTimezone: true }).notNull(),
     purgeAt: timestamp("purge_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

@@ -24,16 +24,21 @@ class FailOnceBridgeEngine implements BridgeEngine {
     return this.#delegate.create(input);
   }
 
-  expireBeforeSourceSettlement: BridgeEngine["expireBeforeSourceSettlement"] = (...args) =>
-    this.#delegate.expireBeforeSourceSettlement(...args);
+  appendProviderEvent: BridgeEngine["appendProviderEvent"] = (...args) =>
+    this.#delegate.appendProviderEvent(...args);
+  expireNextSourcePayment: BridgeEngine["expireNextSourcePayment"] = (...args) =>
+    this.#delegate.expireNextSourcePayment(...args);
   markSourceOutcome: BridgeEngine["markSourceOutcome"] = (...args) =>
     this.#delegate.markSourceOutcome(...args);
   processDestination: BridgeEngine["processDestination"] = (...args) =>
     this.#delegate.processDestination(...args);
+  processNextDestination: BridgeEngine["processNextDestination"] = (...args) =>
+    this.#delegate.processNextDestination(...args);
+  processNextProviderEvent: BridgeEngine["processNextProviderEvent"] = (...args) =>
+    this.#delegate.processNextProviderEvent(...args);
   read: BridgeEngine["read"] = (...args) => this.#delegate.read(...args);
   readOperationalStatus: BridgeEngine["readOperationalStatus"] = () =>
     this.#delegate.readOperationalStatus();
-  requireRefund: BridgeEngine["requireRefund"] = (...args) => this.#delegate.requireRefund(...args);
   retryDestination: BridgeEngine["retryDestination"] = (...args) =>
     this.#delegate.retryDestination(...args);
 }
@@ -63,7 +68,9 @@ const config: NtumbaConfig = {
   QUOTE_TTL_SECONDS: 60,
   RATE_PROVIDER_MODE: "fake",
   SERVE_WEB: false,
+  SETTLEMENT_CALLBACK_GRACE_SECONDS: 60,
   SETTLEMENT_DESTINATION_TTL_SECONDS: 300,
+  SOURCE_PAYMENT_TTL_SECONDS: 180,
   STATIC_BTC_ZMW_RATE: "1800000.00",
   VARIABLE_FEE_BPS: 0,
 };
@@ -198,15 +205,7 @@ describe("Ntumba API", () => {
 
     const failed = await app.inject({ method: "POST", url: "/api/v1/payment-intents", payload });
     expect(failed.statusCode).toBe(500);
-    const staged = await store.findIntentByIdempotencyKey(payload.idempotencyKey);
-    expect(staged).toMatchObject({ providerReference: null, status: "created" });
-    const pendingOutbox = await store.getProviderIntentOutbox(staged?.id ?? "");
-    expect(pendingOutbox).toMatchObject({
-      attemptCount: 1,
-      lastFailureCode: "PROVIDER_REQUEST_FAILED",
-      processedAt: null,
-    });
-    expect(JSON.stringify(pendingOutbox)).not.toContain("0971234567");
+    expect(await store.findIntentByIdempotencyKey(payload.idempotencyKey)).toBeUndefined();
 
     const recovered = await app.inject({
       method: "POST",
@@ -215,18 +214,13 @@ describe("Ntumba API", () => {
     });
     expect(recovered.statusCode).toBe(201);
     expect(recovered.json()).toMatchObject({
-      paymentIntentId: staged?.id,
+      paymentIntentId: expect.any(String),
       status: "awaiting_source_payment",
     });
     expect(bridgeEngine.attemptedIdempotencyKeys).toEqual([
       `collection:${payload.idempotencyKey}`,
       `collection:${payload.idempotencyKey}`,
     ]);
-    expect(await store.getProviderIntentOutbox(staged?.id ?? "")).toMatchObject({
-      attemptCount: 2,
-      lastFailureCode: null,
-      processedAt: expect.any(Date),
-    });
   });
 
   it("preserves a merchant-owned direct invoice exactly", async () => {
@@ -261,6 +255,7 @@ describe("Ntumba API", () => {
     const now = new Date();
     const secret = "x".repeat(32);
     const store = new InMemoryPaymentStore();
+    const treasury = createFakeTreasuryRuntime(config);
     const metrics = new NtumbaMetrics({
       bitcoinRailMode: "fake",
       bridgeMode: "fake",
@@ -274,7 +269,7 @@ describe("Ntumba API", () => {
     const app = await buildApp(
       config,
       {
-        bridgeEngine: createFakeTreasuryRuntime(config).bridgeEngine,
+        bridgeEngine: treasury.bridgeEngine,
         bridgeEventVerifier: new FakeBridgeEventVerifier({
           callbackSecret: secret,
           now: () => now,
@@ -304,7 +299,7 @@ describe("Ntumba API", () => {
       providerReference: intent.json().checkout.providerReference,
       settlement: { amount: "10000", asset: "ZMW" },
       source: { amount: "5834", asset: "BTC" },
-      status: "destination_processing",
+      status: "source_settled",
     };
 
     const rejected = await app.inject({
@@ -322,15 +317,10 @@ describe("Ntumba API", () => {
     });
     expect(accepted.statusCode).toBe(202);
     expect(accepted.json()).toEqual({ status: "accepted" });
-    const stored = await store.getProviderEvent("fake_treasury", "fake-event-1");
-    expect(stored).toMatchObject({
-      normalizedStatus: "destination_processing",
-      paymentIntentId: intent.json().paymentIntentId,
-      processedAt: null,
-      provider: "fake_treasury",
-    });
-    expect(JSON.stringify(stored)).not.toContain(callbackPayload.providerReference);
-    expect(JSON.stringify(stored)).not.toContain("source");
+    expect((await treasury.bridgeEngine.processNextProviderEvent(now))?.status).toBe(
+      "destination_settlement_queued",
+    );
+    expect(await treasury.repository.readJournal()).toHaveLength(1);
 
     const duplicate = await app.inject({
       method: "POST",
@@ -339,7 +329,7 @@ describe("Ntumba API", () => {
     });
     expect(duplicate.statusCode).toBe(200);
     expect(duplicate.json()).toEqual({ status: "duplicate" });
-    expect(await store.getProviderEvent("fake_treasury", "fake-event-1")).toEqual(stored);
+    expect(await treasury.repository.readJournal()).toHaveLength(1);
 
     const conflictingReplay = await app.inject({
       method: "POST",
@@ -347,7 +337,7 @@ describe("Ntumba API", () => {
       ...signedCallback(secret, { ...callbackPayload, status: "failed" }, now),
     });
     expect(conflictingReplay.statusCode).toBe(409);
-    expect(await store.getProviderEvent("fake_treasury", "fake-event-1")).toEqual(stored);
+    expect(await treasury.repository.readJournal()).toHaveLength(1);
     const metricText = metrics.render(await store.readOperationalSnapshot(now), true, now);
     expect(metricText).toContain('outcome="accepted",reason="none"} 1');
     expect(metricText).toContain('outcome="duplicate",reason="none"} 1');

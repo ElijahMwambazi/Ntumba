@@ -28,18 +28,20 @@ legs. Merchants still have no Ntumba account, balance, deposit wallet or synchro
 - Fastify quote and fake payment-intent APIs.
 - Integer-only quotes and explicit source, destination and direct-payment states.
 - Disabled-by-default fake operator treasury with separate Lightning, mobile-money, rate,
-  inventory, coordinator, destination-vault, journal and reconciliation boundaries.
+  repository-backed coordinator, destination-vault, journal and reconciliation boundaries.
 - Merchant-owned direct Lightning boundary that is never substituted with operator liquidity.
 - Signed fake-treasury callbacks with append-only normalized event ingestion.
-- Payload-free transactional provider-intent outbox with idempotent client-assisted recovery.
-- Forward-only PostgreSQL treasury foundation for bridge legs, reservations, obligations,
-  attempts, append-only balanced journal entries, reconciliation and refund obligations.
+- Payload-free transactional source and leased destination outboxes.
+- Durable PostgreSQL fake settlement saga for bridge legs, reservations, obligations, attempts,
+  append-only balanced journal entries, reconciliation review and refund obligations.
 - Disabled-by-default private operator listener with aggregate Prometheus metrics and a provisioned
   loopback-only Grafana dashboard under the opt-in Compose `ops` profile.
 - Deterministic fake Voltage/LND and fake Lipila adapters only.
 
 No Voltage connection, Lipila connection, live rate, mainnet payment or real funds are supported.
-The fake destination vault is process memory only and is not production-safe.
+The fake destination vault is process memory only. Durable accounting and obligations survive a
+restart, but a settled source with a lost destination creates one refund obligation. This is not
+production-safe.
 
 ## Requirements
 

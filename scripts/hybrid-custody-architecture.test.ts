@@ -5,6 +5,7 @@ import { loadConfig } from "../packages/config/src/index.ts";
 import {
   bridgeSettlementLegs,
   bridgeSettlements,
+  destinationSettlementOutbox,
   liquidityReservations,
   paymentIntents,
   providerEvents,
@@ -30,6 +31,7 @@ const providerIntentOutboxColumns = Object.keys(getTableColumns(providerIntentOu
 const durableTables = {
   bridgeSettlementLegs,
   bridgeSettlements,
+  destinationSettlementOutbox,
   liquidityReservations,
   paymentIntents,
   providerEvents,

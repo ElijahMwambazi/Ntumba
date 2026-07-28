@@ -98,8 +98,8 @@ All names use the `ntumba_` prefix. Labels are bounded enums or registered Fasti
 | Rate placeholder | `rate_last_success_timestamp_seconds`, which is zero while the rate mode is fake |
 | Fake Bitcoin treasury | fake node availability, BTC balance and inbound/outbound capacity |
 | Fake mobile treasury | fake Lipila availability and ZMW balance |
-| Treasury pipeline | reserved/liability amounts by bounded asset; source/destination wait, refund and manual-review counts |
-| Reconciliation | last successful deterministic fake reconciliation timestamp |
+| Treasury pipeline | reserved/liability amounts by bounded asset; source/destination wait, refund, manual-review and reconciliation-review counts |
+| Reconciliation | last successful deterministic fake reconciliation timestamp and durable review exceptions |
 
 Metrics never contain merchant names, references, phone numbers, Lightning addresses, invoices,
 public/local IDs, payment-intent IDs, provider references, destination tokens, idempotency keys,
@@ -130,6 +130,9 @@ callback bodies, database URLs or credentials. HTTP labels use registered route 
   checks. No current rail reports this state.
 - `unhealthy`: a configured live capability failed its health contract. It is distinct from
   missing configuration.
+
+When `bridge_mode="disabled"`, fake balances and capacities are zero and the rails are
+`not_configured`; constructing fake adapters cannot make the dashboard report an active bridge.
 
 There is no live Ntumba Lightning node. Fake node balance and capacity values are deterministic
 simulations—not evidence of real liquidity. Direct merchant-wallet payment verification remains

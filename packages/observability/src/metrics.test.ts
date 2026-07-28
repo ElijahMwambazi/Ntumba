@@ -76,6 +76,7 @@ describe("private operational metrics", () => {
       lastSuccessfulReconciliationAt: new Date("2026-07-28T11:00:00.000Z"),
       lightningAvailable: true,
       manualReview: 1,
+      reconciliationReviewRequired: 1,
       mobileMoneyAvailable: true,
       mobileMoneyBalanceZmwMinor: 3_000_000n,
       outboundCapacitySats: 3_500_000n,
@@ -134,6 +135,35 @@ describe("private operational metrics", () => {
       providerReportedSettlementCapacitySats: null,
       settlement: "development_only",
     });
+  });
+
+  it("hides constructed fake rail health and balances when the bridge is disabled", () => {
+    const disabled = new NtumbaMetrics({
+      bitcoinRailMode: "fake",
+      bridgeMode: "disabled",
+      buildCommit: "2990f1b",
+      jobsEnabled: true,
+      mobileMoneyRailMode: "fake",
+      publicRequestStore: "development_non_durable",
+      rateMode: "fake",
+      startedAt: new Date("2026-07-28T10:00:00.000Z"),
+    });
+    const snapshot = emptyOperationalSnapshot();
+    snapshot.treasury.bitcoinBalanceSats = 99n;
+    snapshot.treasury.inboundCapacitySats = 98n;
+    snapshot.treasury.outboundCapacitySats = 97n;
+    snapshot.treasury.lightningAvailable = true;
+    snapshot.treasury.mobileMoneyBalanceZmwMinor = 96n;
+    snapshot.treasury.mobileMoneyAvailable = true;
+    const output = disabled.render(snapshot, true);
+
+    expect(output).toContain('direction="btc_to_zmw",state="not_configured"} 1');
+    expect(output).toContain('capability="node",state="not_configured"} 1');
+    expect(output).toContain('capability="provider_mode",state="disabled"} 1');
+    expect(output).toContain("ntumba_fake_lightning_node_available 0");
+    expect(output).toContain("ntumba_fake_bitcoin_treasury_balance_sats 0");
+    expect(output).toContain("ntumba_fake_lipila_available 0");
+    expect(output).toContain("ntumba_fake_lipila_treasury_balance_zmw_minor 0");
   });
 
   it("updates callback and purge metrics with bounded labels", () => {

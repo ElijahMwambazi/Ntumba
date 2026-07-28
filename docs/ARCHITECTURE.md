@@ -49,8 +49,8 @@ Private Prometheus ── bearer token ──> Internal Fastify listener ── 
 Conversion no longer assumes one provider owns both legs. `BitcoinLiquidityRail` represents
 operator Lightning invoice creation/read, outgoing invoice payment and BTC balance/capacity.
 `MobileMoneyLiquidityRail` represents mobile-money collection/disbursement and ZMW
-balance/availability. `LiquidityInventoryService` reserves destination assets before collection.
-`BridgeEngine` sequences both legs, `SettlementDestinationVault` recovers a destination only for a
+balance/availability. `SettlementSagaRepository` durably reserves destination assets before
+collection. `BridgeEngine` sequences both legs, `SettlementDestinationVault` recovers a destination only for a
 short time, `TreasuryJournal` records linked balanced transactions per asset, and
 `ReconciliationService` compares privacy-safe external state.
 
@@ -68,16 +68,15 @@ The fake treasury callback enters through `POST /api/v1/provider-callbacks/fake`
 the timestamp and exact raw bytes. Verification and normalization happen before the event is
 matched against the retained opaque reference, direction, assets and integer amounts.
 
-Intent creation retains the existing transactional outbox safety. It atomically stores a
-`created` intent and payload-free outbox row, then reserves destination liquidity, places the
-destination in the development-only vault and creates source collection using a distinct
-collection idempotency key. Completion stores only opaque references/tokens and moves the intent
-to `awaiting_source_payment`.
+Intent creation atomically stores the payment intent, bridge, source/destination legs, reservation,
+waiting obligation and payload-free source outbox. It then vaults the destination and calls the
+fake source rail outside the transaction with a distinct collection key. Completion stores only
+opaque references/tokens and moves the intent to `awaiting_source_payment`.
 
-If source setup fails, the outbox remains with a safe code. Repeating the same request supplies
-the destination transiently and reuses the original key. Durable bridge-leg tables now exist but
-are not yet wired to the in-memory coordinator; transactional saga persistence is a later
-milestone.
+Provider-event processing row-locks one normalized event and atomically advances the source leg,
+journal, obligation, destination outbox and processed marker. Destination work uses an expiring
+database lease and creates one durable logical attempt before the fake rail call. Coordinator
+instances hold no authoritative lifecycle state and may be restarted.
 
 ## Direct Lightning
 
@@ -104,8 +103,8 @@ failure code and lifecycle timestamps. It has no serialized payload or destinati
 
 Verified provider events are appended under the unique provider/event-ID key. Identical retries
 are acknowledged without a second row; reuse of an event ID with different bytes is rejected.
-Ingestion does not yet advance intent state. A later processor must apply legal domain transitions
-and record `processed_at` transactionally.
+The PostgreSQL processor applies legal domain transitions and records `processed_at` in the same
+transaction, so duplicate callbacks cannot double-credit or duplicate obligations.
 
 Normal server startup uses the PostgreSQL store for quotes and payment intents. Unit/API tests
 inject an in-memory implementation of the same safe record shape.

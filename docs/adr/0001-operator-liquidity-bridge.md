@@ -1,6 +1,6 @@
 # ADR 0001: Operator-liquidity conversion bridge
 
-- Status: Accepted for fake foundation
+- Status: Accepted for durable fake foundation
 - Date: 2026-07-28
 
 ## Context
@@ -33,7 +33,9 @@ service. Reserve destination liquidity before accepting source payment. Use dist
 and settlement idempotency keys, reuse the original key on a safe retry, and send unknown outcomes
 to manual review.
 
-This milestone provides only a disabled-by-default deterministic fake. Fake Voltage/LND and
+This milestone provides only a disabled-by-default deterministic fake. Its lifecycle authority is
+a PostgreSQL repository with row-locked events, leased destination work and immutable accounting;
+coordinator restarts are safe. Fake Voltage/LND and
 Lipila adapters contain no network-call path or real credential. No Voltage, Lipila, sandbox,
 mainnet or live configuration mode exists.
 
@@ -45,7 +47,8 @@ after terminal settlement, confirmed source failure or expiry. Destination loss 
 settlement creates `refund_required` or `manual_review`; it can never produce `settled`.
 
 Production must use either provider-issued opaque beneficiary tokenization or a reviewed
-short-lived envelope-encrypted destination store with automatic deletion. This ADR does not
+short-lived envelope-encrypted destination store with automatic deletion. Until then, losing the
+development vault after source settlement creates exactly one durable refund obligation. This ADR does not
 approve or implement the encrypted store.
 
 ## Journal and reconciliation

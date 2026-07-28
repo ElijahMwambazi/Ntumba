@@ -311,6 +311,7 @@ export class InMemoryPaymentStore implements PaymentStore {
         lastSuccessfulReconciliationAt: null,
         lightningAvailable: false,
         manualReview: 0,
+        reconciliationReviewRequired: 0,
         mobileMoneyAvailable: false,
         mobileMoneyBalanceZmwMinor: 0n,
         outboundCapacitySats: 0n,
