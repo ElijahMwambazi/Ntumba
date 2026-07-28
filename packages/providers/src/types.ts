@@ -9,6 +9,7 @@ export type ProviderPaymentStatus =
   | "unknown";
 
 export type BridgeDirection = "btc_to_zmw" | "zmw_to_btc";
+export type ProviderAsset = "BTC" | "ZMW";
 
 export type ProviderDestination =
   | {
@@ -39,10 +40,15 @@ export interface ProviderPaymentIntent {
 }
 
 export interface VerifiedProviderCallback {
+  direction: BridgeDirection;
   eventId: string;
   occurredAt: Date;
   payloadHash: string;
   providerReference: string;
+  settlementAmount: bigint;
+  settlementAsset: ProviderAsset;
+  sourceAmount: bigint;
+  sourceAsset: ProviderAsset;
   status: ProviderPaymentStatus;
 }
 

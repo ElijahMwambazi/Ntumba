@@ -24,6 +24,8 @@ Ntumba coordinates intents and status. It does not receive, control, forward or 
 - Fastify quote and fake payment-intent APIs.
 - Integer-only quotes and explicit provider/direct payment states.
 - Provider-direct settlement and merchant-owned Lightning boundaries.
+- Signed fake-provider callbacks with append-only normalized event ingestion.
+- Payload-free transactional provider-intent outbox with idempotent client-assisted recovery.
 - Minimal PostgreSQL state with normalized events and scheduled expiry/purge support.
 - Safe fake providers only.
 

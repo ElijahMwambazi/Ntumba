@@ -1,6 +1,7 @@
 import {
   bigint,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -99,6 +100,28 @@ export const paymentIntents = pgTable(
     ),
     index("payment_intents_status_idx").on(table.status),
     index("payment_intents_purge_at_idx").on(table.purgeAt),
+  ],
+);
+
+export const providerIntentOutbox = pgTable(
+  "provider_intent_outbox",
+  {
+    id: uuid("id").primaryKey(),
+    paymentIntentId: uuid("payment_intent_id")
+      .notNull()
+      .references(() => paymentIntents.id),
+    provider: text("provider").notNull(),
+    attemptCount: integer("attempt_count").default(1).notNull(),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).notNull(),
+    lastFailureCode: text("last_failure_code"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    purgeAt: timestamp("purge_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("provider_intent_outbox_intent_uidx").on(table.paymentIntentId),
+    index("provider_intent_outbox_pending_idx").on(table.processedAt, table.lastAttemptAt),
+    index("provider_intent_outbox_purge_at_idx").on(table.purgeAt),
   ],
 );
 

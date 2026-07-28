@@ -19,6 +19,8 @@ yarn db:migrate
 ```
 
 All payment adapters are safe fakes. There are no live wallet or payment-gateway actions.
+Set a random `FAKE_PROVIDER_CALLBACK_SECRET` of at least 32 characters to exercise the signed fake
+callback route. Without it, callback verification fails closed while other development flows run.
 
 ## Database changes
 
@@ -48,6 +50,10 @@ yarn test:e2e
 Test idempotency, quote expiry, purge eligibility, duplicate callbacks, unknown provider outcomes,
 failed settlement, refunds and manual review. Prove that merchant destinations and raw callbacks
 cannot enter persistence.
+
+Provider-direct intent creation is staged transactionally with a payload-free outbox row before
+the provider call. Failure-injection tests must prove that resubmitting the same request and
+idempotency key resumes the staged intent without persisting the destination.
 
 Destinations may be passed transiently to a provider adapter. Fastify must not log request bodies,
 and provider errors must map to non-identifying failures.

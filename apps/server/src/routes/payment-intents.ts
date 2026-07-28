@@ -2,20 +2,95 @@ import { randomUUID } from "node:crypto";
 import type { NtumbaConfig } from "@ntumba/config";
 import {
   type CheckoutInstructions,
+  type CreatePaymentIntentRequest,
   createPaymentIntentRequestSchema,
   paymentIntentResponseSchema,
   paymentIntentStatusResponseSchema,
 } from "@ntumba/contracts";
 import { createRetentionWindow } from "@ntumba/domain";
-import type { DirectLightningProvider, SettlementProvider } from "@ntumba/providers";
+import type {
+  DirectLightningProvider,
+  ProviderPaymentIntent,
+  SettlementProvider,
+} from "@ntumba/providers";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { PaymentStore, StoredPaymentIntent } from "../payment-store.js";
+import type {
+  PaymentStore,
+  StoredPaymentIntent,
+  StoredProviderIntentOutbox,
+} from "../payment-store.js";
 
 export interface PaymentRouteDependencies {
   directLightningProvider: DirectLightningProvider;
   settlementProvider: SettlementProvider;
   store: PaymentStore;
+}
+
+type BridgePaymentIntentRequest = Exclude<CreatePaymentIntentRequest, { direction: "btc_to_btc" }>;
+
+function createProviderIntentOutbox(
+  intent: StoredPaymentIntent,
+  attemptedAt: Date,
+): StoredProviderIntentOutbox {
+  return {
+    attemptCount: 1,
+    createdAt: attemptedAt,
+    id: randomUUID(),
+    lastAttemptAt: attemptedAt,
+    lastFailureCode: null,
+    paymentIntentId: intent.id,
+    processedAt: null,
+    provider: "fake",
+    purgeAt: intent.purgeAt,
+    updatedAt: attemptedAt,
+  };
+}
+
+async function dispatchProviderIntent(
+  dependencies: PaymentRouteDependencies,
+  input: BridgePaymentIntentRequest,
+  stagedIntent: StoredPaymentIntent,
+): Promise<{ checkout: CheckoutInstructions; intent: StoredPaymentIntent }> {
+  let providerIntent: ProviderPaymentIntent;
+  try {
+    providerIntent = await dependencies.settlementProvider.createPaymentIntent({
+      destination: input.destination,
+      direction: input.direction,
+      idempotencyKey: input.idempotencyKey,
+      providerQuoteReference: input.quoteId,
+    });
+  } catch (error) {
+    await dependencies.store.recordProviderIntentFailure(
+      stagedIntent.id,
+      "PROVIDER_REQUEST_FAILED",
+      new Date(),
+    );
+    throw error;
+  }
+
+  const intent = await dependencies.store.completeProviderIntent(stagedIntent.id, {
+    destinationToken: providerIntent.destinationToken,
+    expiresAt: providerIntent.expiresAt,
+    providerReference: providerIntent.providerReference,
+    updatedAt: new Date(),
+  });
+  if (
+    intent.providerReference !== providerIntent.providerReference ||
+    intent.destinationToken !== providerIntent.destinationToken
+  ) {
+    throw new Error("Provider idempotency returned a conflicting payment intent.");
+  }
+
+  return {
+    checkout: {
+      checkoutUrl: providerIntent.checkoutUrl,
+      instructions: providerIntent.payerInstructions,
+      providerReference: providerIntent.providerReference,
+      type: "provider",
+    },
+    intent,
+  };
 }
 
 export function paymentIntentRoutes(
@@ -36,7 +111,7 @@ export function paymentIntentRoutes(
       async (request, reply) => {
         await dependencies.store.purgeDue(new Date());
         const quote = await dependencies.store.getQuote(request.body.quoteId);
-        if (!quote || new Date(quote.response.expiresAt).getTime() <= Date.now()) {
+        if (!quote) {
           throw app.httpErrors.gone("The quote has expired. Create a new quote.");
         }
         if (quote.response.direction !== request.body.direction) {
@@ -46,6 +121,9 @@ export function paymentIntentRoutes(
         const existing = await dependencies.store.findIntentByIdempotencyKey(
           request.body.idempotencyKey,
         );
+        if (!existing && new Date(quote.response.expiresAt).getTime() <= Date.now()) {
+          throw app.httpErrors.gone("The quote has expired. Create a new quote.");
+        }
         if (existing) {
           if (
             existing.quoteId !== request.body.quoteId ||
@@ -56,6 +134,7 @@ export function paymentIntentRoutes(
             );
           }
           let checkout: CheckoutInstructions;
+          let intent = existing;
           if (request.body.direction === "btc_to_btc") {
             if (quote.merchantAmountSats === null) {
               throw new Error("Direct quote did not include a satoshi amount.");
@@ -74,26 +153,24 @@ export function paymentIntentRoutes(
               verification: "unverified",
             };
           } else {
-            const providerIntent = await dependencies.settlementProvider.createPaymentIntent({
-              destination: request.body.destination,
-              direction: request.body.direction,
-              idempotencyKey: request.body.idempotencyKey,
-              providerQuoteReference: quote.response.quoteId,
-            });
-            checkout = {
-              checkoutUrl: providerIntent.checkoutUrl,
-              instructions: providerIntent.payerInstructions,
-              providerReference: providerIntent.providerReference,
-              type: "provider",
-            };
+            if (intent.status === "created") {
+              const attemptedAt = new Date();
+              intent = await dependencies.store.stageProviderIntent(
+                intent,
+                createProviderIntentOutbox(intent, attemptedAt),
+              );
+            }
+            const dispatched = await dispatchProviderIntent(dependencies, request.body, intent);
+            checkout = dispatched.checkout;
+            intent = dispatched.intent;
           }
           return reply.status(201).send({
             checkout,
-            direction: existing.direction,
-            expiresAt: existing.expiresAt.toISOString(),
-            paymentIntentId: existing.id,
+            direction: intent.direction,
+            expiresAt: intent.expiresAt.toISOString(),
+            paymentIntentId: intent.id,
             quote: quote.response,
-            status: existing.status,
+            status: intent.status,
           });
         }
 
@@ -138,36 +215,41 @@ export function paymentIntentRoutes(
             updatedAt: now,
           };
         } else {
-          const providerIntent = await dependencies.settlementProvider.createPaymentIntent({
-            destination: request.body.destination,
-            direction: request.body.direction,
-            idempotencyKey: request.body.idempotencyKey,
-            providerQuoteReference: quote.response.quoteId,
-          });
-          checkout = {
-            checkoutUrl: providerIntent.checkoutUrl,
-            instructions: providerIntent.payerInstructions,
-            providerReference: providerIntent.providerReference,
-            type: "provider",
-          };
           intent = {
             createdAt: now,
-            destinationToken: providerIntent.destinationToken,
+            destinationToken: null,
             direction: request.body.direction,
-            expiresAt: providerIntent.expiresAt,
+            expiresAt: new Date(quote.response.expiresAt),
             failureCode: null,
             id: paymentIntentId,
             idempotencyKey: request.body.idempotencyKey,
             provider: "fake",
-            providerReference: providerIntent.providerReference,
+            providerReference: null,
             purgeAt: retention.purgeAt,
             quoteId: quote.response.quoteId,
-            status: "provider_collecting",
+            status: "created",
             updatedAt: now,
           };
+          intent = await dependencies.store.stageProviderIntent(
+            intent,
+            createProviderIntentOutbox(intent, now),
+          );
+          if (
+            intent.quoteId !== request.body.quoteId ||
+            intent.direction !== request.body.direction
+          ) {
+            throw app.httpErrors.conflict(
+              "The idempotency key is already bound to another payment request.",
+            );
+          }
+          const dispatched = await dispatchProviderIntent(dependencies, request.body, intent);
+          checkout = dispatched.checkout;
+          intent = dispatched.intent;
         }
 
-        intent = await dependencies.store.saveIntent(intent);
+        if (request.body.direction === "btc_to_btc") {
+          intent = await dependencies.store.saveIntent(intent);
+        }
         if (
           intent.quoteId !== request.body.quoteId ||
           intent.direction !== request.body.direction

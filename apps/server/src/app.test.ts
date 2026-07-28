@@ -1,6 +1,23 @@
+import { createHmac } from "node:crypto";
 import type { NtumbaConfig } from "@ntumba/config";
+import { FakeDirectLightningProvider, FakeSettlementProvider } from "@ntumba/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
+import { InMemoryPaymentStore } from "./payment-store.js";
+
+class FailOnceSettlementProvider extends FakeSettlementProvider {
+  readonly attemptedIdempotencyKeys: string[] = [];
+
+  override async createPaymentIntent(
+    input: Parameters<FakeSettlementProvider["createPaymentIntent"]>[0],
+  ) {
+    this.attemptedIdempotencyKeys.push(input.idempotencyKey);
+    if (this.attemptedIdempotencyKeys.length === 1) {
+      throw new Error("Synthetic provider timeout");
+    }
+    return super.createPaymentIntent(input);
+  }
+}
 
 const config: NtumbaConfig = {
   APP_BASE_URL: "http://localhost:5173",
@@ -33,6 +50,24 @@ async function quote(app: Awaited<ReturnType<typeof buildApp>>, direction = "btc
     url: "/api/v1/quotes",
     payload: { amountZmw: "100.00", direction },
   });
+}
+
+function signedCallback(secret: string, payload: Record<string, unknown>, now: Date) {
+  const body = JSON.stringify(payload);
+  const timestamp = String(Math.floor(now.getTime() / 1_000));
+  const signature = createHmac("sha256", secret)
+    .update(timestamp)
+    .update(".")
+    .update(body)
+    .digest("hex");
+  return {
+    headers: {
+      "content-type": "application/json",
+      "x-fake-signature": `sha256=${signature}`,
+      "x-fake-timestamp": timestamp,
+    },
+    payload: body,
+  };
 }
 
 describe("Ntumba API", () => {
@@ -104,6 +139,56 @@ describe("Ntumba API", () => {
     expect(response.body).not.toContain("0971234567");
   });
 
+  it("resumes a staged provider intent after a transient provider failure", async () => {
+    const store = new InMemoryPaymentStore();
+    const settlementProvider = new FailOnceSettlementProvider();
+    const app = await buildApp(config, {
+      directLightningProvider: new FakeDirectLightningProvider(),
+      settlementProvider,
+      store,
+    });
+    openApps.push(app);
+    const quoted = await quote(app);
+    const payload = {
+      destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+      direction: "btc_to_zmw",
+      idempotencyKey: "outbox-retry-012345",
+      quoteId: quoted.json().quoteId,
+    };
+
+    const failed = await app.inject({ method: "POST", url: "/api/v1/payment-intents", payload });
+    expect(failed.statusCode).toBe(500);
+    const staged = await store.findIntentByIdempotencyKey(payload.idempotencyKey);
+    expect(staged).toMatchObject({ providerReference: null, status: "created" });
+    const pendingOutbox = await store.getProviderIntentOutbox(staged?.id ?? "");
+    expect(pendingOutbox).toMatchObject({
+      attemptCount: 1,
+      lastFailureCode: "PROVIDER_REQUEST_FAILED",
+      processedAt: null,
+    });
+    expect(JSON.stringify(pendingOutbox)).not.toContain("0971234567");
+
+    const recovered = await app.inject({
+      method: "POST",
+      url: "/api/v1/payment-intents",
+      payload,
+    });
+    expect(recovered.statusCode).toBe(201);
+    expect(recovered.json()).toMatchObject({
+      paymentIntentId: staged?.id,
+      status: "provider_collecting",
+    });
+    expect(settlementProvider.attemptedIdempotencyKeys).toEqual([
+      payload.idempotencyKey,
+      payload.idempotencyKey,
+    ]);
+    expect(await store.getProviderIntentOutbox(staged?.id ?? "")).toMatchObject({
+      attemptCount: 2,
+      lastFailureCode: null,
+      processedAt: expect.any(Date),
+    });
+  });
+
   it("preserves a merchant-owned direct invoice exactly", async () => {
     const app = await buildApp(config);
     openApps.push(app);
@@ -130,6 +215,121 @@ describe("Ntumba API", () => {
       },
       status: "direct_payment_pending",
     });
+  });
+
+  it("accepts a matching signed callback once and stores only its normalized event", async () => {
+    const now = new Date();
+    const secret = "x".repeat(32);
+    const store = new InMemoryPaymentStore();
+    const app = await buildApp(config, {
+      directLightningProvider: new FakeDirectLightningProvider(),
+      settlementProvider: new FakeSettlementProvider({ callbackSecret: secret, now: () => now }),
+      store,
+    });
+    openApps.push(app);
+    const quoted = await quote(app);
+    const intent = await app.inject({
+      method: "POST",
+      url: "/api/v1/payment-intents",
+      payload: {
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        direction: "btc_to_zmw",
+        idempotencyKey: "callback-intent-012345",
+        quoteId: quoted.json().quoteId,
+      },
+    });
+    const callbackPayload = {
+      direction: "btc_to_zmw",
+      eventId: "fake-event-1",
+      occurredAt: now.toISOString(),
+      providerReference: intent.json().checkout.providerReference,
+      settlement: { amount: "10000", asset: "ZMW" },
+      source: { amount: "5834", asset: "BTC" },
+      status: "settling",
+    };
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/v1/provider-callbacks/fake",
+      ...signedCallback("y".repeat(32), callbackPayload, now),
+    });
+    expect(rejected.statusCode).toBe(401);
+    expect(await store.getProviderEvent("fake", "fake-event-1")).toBeUndefined();
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/v1/provider-callbacks/fake",
+      ...signedCallback(secret, callbackPayload, now),
+    });
+    expect(accepted.statusCode).toBe(202);
+    expect(accepted.json()).toEqual({ status: "accepted" });
+    const stored = await store.getProviderEvent("fake", "fake-event-1");
+    expect(stored).toMatchObject({
+      normalizedStatus: "settling",
+      paymentIntentId: intent.json().paymentIntentId,
+      processedAt: null,
+      provider: "fake",
+    });
+    expect(JSON.stringify(stored)).not.toContain(callbackPayload.providerReference);
+    expect(JSON.stringify(stored)).not.toContain("source");
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/v1/provider-callbacks/fake",
+      ...signedCallback(secret, callbackPayload, now),
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json()).toEqual({ status: "duplicate" });
+    expect(await store.getProviderEvent("fake", "fake-event-1")).toEqual(stored);
+
+    const conflictingReplay = await app.inject({
+      method: "POST",
+      url: "/api/v1/provider-callbacks/fake",
+      ...signedCallback(secret, { ...callbackPayload, status: "failed" }, now),
+    });
+    expect(conflictingReplay.statusCode).toBe(409);
+    expect(await store.getProviderEvent("fake", "fake-event-1")).toEqual(stored);
+  });
+
+  it("rejects a signed callback whose amount does not match the retained intent", async () => {
+    const now = new Date();
+    const secret = "x".repeat(32);
+    const store = new InMemoryPaymentStore();
+    const app = await buildApp(config, {
+      directLightningProvider: new FakeDirectLightningProvider(),
+      settlementProvider: new FakeSettlementProvider({ callbackSecret: secret, now: () => now }),
+      store,
+    });
+    openApps.push(app);
+    const quoted = await quote(app);
+    const intent = await app.inject({
+      method: "POST",
+      url: "/api/v1/payment-intents",
+      payload: {
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        direction: "btc_to_zmw",
+        idempotencyKey: "callback-mismatch-012345",
+        quoteId: quoted.json().quoteId,
+      },
+    });
+    const callbackPayload = {
+      direction: "btc_to_zmw",
+      eventId: "fake-event-mismatch",
+      occurredAt: now.toISOString(),
+      providerReference: intent.json().checkout.providerReference,
+      settlement: { amount: "9999", asset: "ZMW" },
+      source: { amount: "5834", asset: "BTC" },
+      status: "settling",
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/provider-callbacks/fake",
+      ...signedCallback(secret, callbackPayload, now),
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(await store.getProviderEvent("fake", "fake-event-mismatch")).toBeUndefined();
   });
 
   it("publishes an opaque development request without a merchant destination", async () => {

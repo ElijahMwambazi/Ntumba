@@ -1,4 +1,5 @@
 import type { CreateQuoteResponse, PaymentDirection, PaymentStatus } from "@ntumba/contracts";
+import type { ProviderPaymentStatus } from "@ntumba/providers";
 
 export interface StoredQuote {
   amountZmwMinor: bigint;
@@ -28,18 +29,81 @@ export interface StoredPaymentIntent {
   updatedAt: Date;
 }
 
+export interface StoredProviderEvent {
+  id: string;
+  normalizedStatus: ProviderPaymentStatus;
+  occurredAt: Date;
+  payloadHash: string;
+  paymentIntentId: string;
+  processedAt: Date | null;
+  provider: string;
+  providerEventId: string;
+  purgeAt: Date;
+  receivedAt: Date;
+}
+
+export interface StoredProviderIntentOutbox {
+  attemptCount: number;
+  createdAt: Date;
+  id: string;
+  lastAttemptAt: Date;
+  lastFailureCode: string | null;
+  paymentIntentId: string;
+  processedAt: Date | null;
+  provider: string;
+  purgeAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProviderIntentCompletion {
+  destinationToken: string | null;
+  expiresAt: Date;
+  providerReference: string;
+  updatedAt: Date;
+}
+
+export interface AppendProviderEventResult {
+  event: StoredProviderEvent;
+  outcome: "conflict" | "duplicate" | "inserted";
+}
+
 export interface PaymentStore {
+  appendProviderEvent(event: StoredProviderEvent): Promise<AppendProviderEventResult>;
+  completeProviderIntent(
+    paymentIntentId: string,
+    completion: ProviderIntentCompletion,
+  ): Promise<StoredPaymentIntent>;
   findIntentByIdempotencyKey(idempotencyKey: string): Promise<StoredPaymentIntent | undefined>;
+  findIntentByProviderReference(
+    provider: string,
+    providerReference: string,
+  ): Promise<StoredPaymentIntent | undefined>;
   getIntent(id: string): Promise<StoredPaymentIntent | undefined>;
+  getProviderEvent(
+    provider: string,
+    providerEventId: string,
+  ): Promise<StoredProviderEvent | undefined>;
+  getProviderIntentOutbox(paymentIntentId: string): Promise<StoredProviderIntentOutbox | undefined>;
   getQuote(id: string): Promise<StoredQuote | undefined>;
-  purgeDue(now: Date): Promise<{ intents: number; quotes: number }>;
+  purgeDue(now: Date): Promise<{ events: number; intents: number; outbox: number; quotes: number }>;
+  recordProviderIntentFailure(
+    paymentIntentId: string,
+    failureCode: string,
+    failedAt: Date,
+  ): Promise<void>;
   saveIntent(intent: StoredPaymentIntent): Promise<StoredPaymentIntent>;
   saveQuote(quote: StoredQuote): Promise<void>;
+  stageProviderIntent(
+    intent: StoredPaymentIntent,
+    outbox: StoredProviderIntentOutbox,
+  ): Promise<StoredPaymentIntent>;
 }
 
 export class InMemoryPaymentStore implements PaymentStore {
+  readonly #events = new Map<string, StoredProviderEvent>();
   readonly #intents = new Map<string, StoredPaymentIntent>();
   readonly #intentIdsByIdempotencyKey = new Map<string, string>();
+  readonly #outbox = new Map<string, StoredProviderIntentOutbox>();
   readonly #quotes = new Map<string, StoredQuote>();
 
   async saveQuote(quote: StoredQuote): Promise<void> {
@@ -64,6 +128,124 @@ export class InMemoryPaymentStore implements PaymentStore {
     return this.#intents.get(id);
   }
 
+  async findIntentByProviderReference(
+    provider: string,
+    providerReference: string,
+  ): Promise<StoredPaymentIntent | undefined> {
+    return [...this.#intents.values()].find(
+      (intent) => intent.provider === provider && intent.providerReference === providerReference,
+    );
+  }
+
+  async appendProviderEvent(event: StoredProviderEvent): Promise<AppendProviderEventResult> {
+    const key = `${event.provider}:${event.providerEventId}`;
+    const existing = this.#events.get(key);
+    if (existing) {
+      return {
+        event: existing,
+        outcome:
+          existing.paymentIntentId === event.paymentIntentId &&
+          existing.payloadHash === event.payloadHash
+            ? "duplicate"
+            : "conflict",
+      };
+    }
+    this.#events.set(key, event);
+    return { event, outcome: "inserted" };
+  }
+
+  async getProviderEvent(
+    provider: string,
+    providerEventId: string,
+  ): Promise<StoredProviderEvent | undefined> {
+    return this.#events.get(`${provider}:${providerEventId}`);
+  }
+
+  async stageProviderIntent(
+    intent: StoredPaymentIntent,
+    outbox: StoredProviderIntentOutbox,
+  ): Promise<StoredPaymentIntent> {
+    const existing = await this.findIntentByIdempotencyKey(intent.idempotencyKey);
+    if (existing) {
+      if (existing.status === "created") {
+        const existingOutbox = this.#outbox.get(existing.id);
+        if (!existingOutbox) {
+          this.#outbox.set(existing.id, { ...outbox, paymentIntentId: existing.id });
+        } else {
+          this.#outbox.set(existing.id, {
+            ...existingOutbox,
+            attemptCount: existingOutbox.attemptCount + 1,
+            lastAttemptAt: outbox.lastAttemptAt,
+            lastFailureCode: null,
+            updatedAt: outbox.updatedAt,
+          });
+        }
+      }
+      return existing;
+    }
+
+    this.#intents.set(intent.id, intent);
+    this.#intentIdsByIdempotencyKey.set(intent.idempotencyKey, intent.id);
+    this.#outbox.set(intent.id, outbox);
+    return intent;
+  }
+
+  async completeProviderIntent(
+    paymentIntentId: string,
+    completion: ProviderIntentCompletion,
+  ): Promise<StoredPaymentIntent> {
+    const intent = this.#intents.get(paymentIntentId);
+    if (!intent) {
+      throw new Error("Provider intent completion has no staged intent.");
+    }
+    if (intent.status !== "created") {
+      return intent;
+    }
+    const outbox = this.#outbox.get(paymentIntentId);
+    if (!outbox) {
+      throw new Error("Provider intent completion has no outbox row.");
+    }
+
+    const completed: StoredPaymentIntent = {
+      ...intent,
+      destinationToken: completion.destinationToken,
+      expiresAt: completion.expiresAt,
+      providerReference: completion.providerReference,
+      status: "provider_collecting",
+      updatedAt: completion.updatedAt,
+    };
+    this.#intents.set(paymentIntentId, completed);
+    this.#outbox.set(paymentIntentId, {
+      ...outbox,
+      lastFailureCode: null,
+      processedAt: completion.updatedAt,
+      updatedAt: completion.updatedAt,
+    });
+    return completed;
+  }
+
+  async recordProviderIntentFailure(
+    paymentIntentId: string,
+    failureCode: string,
+    failedAt: Date,
+  ): Promise<void> {
+    const outbox = this.#outbox.get(paymentIntentId);
+    if (!outbox || outbox.processedAt) {
+      return;
+    }
+    this.#outbox.set(paymentIntentId, {
+      ...outbox,
+      lastFailureCode: failureCode,
+      updatedAt: failedAt,
+    });
+  }
+
+  async getProviderIntentOutbox(
+    paymentIntentId: string,
+  ): Promise<StoredProviderIntentOutbox | undefined> {
+    return this.#outbox.get(paymentIntentId);
+  }
+
   async findIntentByIdempotencyKey(
     idempotencyKey: string,
   ): Promise<StoredPaymentIntent | undefined> {
@@ -71,9 +253,27 @@ export class InMemoryPaymentStore implements PaymentStore {
     return intentId ? this.#intents.get(intentId) : undefined;
   }
 
-  async purgeDue(now: Date): Promise<{ intents: number; quotes: number }> {
+  async purgeDue(
+    now: Date,
+  ): Promise<{ events: number; intents: number; outbox: number; quotes: number }> {
+    let events = 0;
     let intents = 0;
+    let outbox = 0;
     let quotes = 0;
+
+    for (const [paymentIntentId, entry] of this.#outbox) {
+      if (entry.purgeAt.getTime() <= now.getTime()) {
+        this.#outbox.delete(paymentIntentId);
+        outbox += 1;
+      }
+    }
+
+    for (const [key, event] of this.#events) {
+      if (event.purgeAt.getTime() <= now.getTime()) {
+        this.#events.delete(key);
+        events += 1;
+      }
+    }
 
     for (const [id, intent] of this.#intents) {
       if (intent.purgeAt.getTime() <= now.getTime()) {
@@ -91,6 +291,6 @@ export class InMemoryPaymentStore implements PaymentStore {
       }
     }
 
-    return { intents, quotes };
+    return { events, intents, outbox, quotes };
   }
 }

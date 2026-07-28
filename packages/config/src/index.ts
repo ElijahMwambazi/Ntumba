@@ -8,6 +8,7 @@ const booleanString = z
 const configSchema = z.object({
   APP_BASE_URL: z.url().default("http://localhost:5173"),
   DATABASE_URL: z.string().min(1).default("postgresql://ntumba:ntumba@localhost:5432/ntumba"),
+  FAKE_PROVIDER_CALLBACK_SECRET: z.string().min(32).optional(),
   FLAT_FEE_ZMW: z.string().default("5.00"),
   HOST: z.string().default("0.0.0.0"),
   INTENT_RETENTION_SECONDS: z.coerce.number().int().min(0).max(2_592_000).default(86_400),

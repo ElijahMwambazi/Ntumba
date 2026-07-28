@@ -20,6 +20,10 @@
   boolean and resets with all other local Ntumba data.
 - Destination-free quote contracts and integer-only quote arithmetic.
 - Provider-direct settlement contract with safe deterministic fake.
+- HMAC-signed fake-provider callback endpoint with five-minute timestamp tolerance, raw-body
+  verification, intent/amount/asset matching and replay-safe append-only normalized event storage.
+- Payload-free provider-intent outbox staged atomically with each bridge intent, with safe attempt
+  metadata, idempotent client-assisted retry and transactional completion of opaque provider data.
 - Separate direct-Lightning contract that preserves merchant-owned invoices.
 - PostgreSQL quote/payment-intent adapter containing only safe operational fields.
 - Normalized provider-event schema with no raw callback body.
@@ -39,8 +43,9 @@
 
 - Live, freshness-checked BTC/ZMW rates.
 - Any live settlement provider.
-- Signed callback HTTP route and durable normalized event ingestion.
-- Provider status polling/reconciliation that advances persisted states.
+- Provider-event processing, status polling and reconciliation that advance persisted states.
+- Autonomous provider-intent outbox dispatch. It requires a provider-issued opaque destination
+  token; raw or encrypted merchant destinations remain forbidden in server persistence.
 - Live Lightning-address resolution or merchant-wallet settlement verification.
 - Independently verifiable direct-payment receipts.
 - Durable, multi-instance public request storage. The current opaque public request store is

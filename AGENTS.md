@@ -25,6 +25,9 @@ Payment safety, privacy, recoverability and operator clarity are product feature
 - Use Yarn only. Never create `package-lock.json` or `pnpm-lock.yaml`.
 - Keep the modular monolith unless a measured production constraint requires more.
 - All provider calls require idempotency keys, opaque references and safe retry behavior.
+- Provider-intent outbox rows must remain payload-free. Retry with the same provider idempotency
+  key and a transient client-supplied destination unless a reviewed provider supplies an opaque
+  destination token that is safe to persist.
 - Do not expose destinations, invoices, provider credentials or callback bodies in logs or errors.
 - Only fake providers are active. Live provider actions require explicit authorization, reviewed
   contracts and test credentials.

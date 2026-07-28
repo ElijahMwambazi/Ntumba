@@ -7,6 +7,9 @@ Ntumba must remain operable by one person without controlling funds.
 - Safe fake provider only.
 - PostgreSQL holds short-lived opaque operational records.
 - pg-boss runs the hourly `purge-operational-data` job when jobs are enabled.
+- Pending provider-intent outbox rows identify client requests that must be safely retried with the
+  original idempotency key and transient destination; operators cannot dispatch them without that
+  destination.
 - No provider credential, wallet credential or real payment action exists.
 
 ## Daily pilot checks

@@ -10,7 +10,9 @@ const config = loadConfig();
 const { database, pool } = createDatabase(config.DATABASE_URL);
 const app = await buildApp(config, {
   directLightningProvider: new FakeDirectLightningProvider(),
-  settlementProvider: new FakeSettlementProvider(),
+  settlementProvider: new FakeSettlementProvider({
+    callbackSecret: config.FAKE_PROVIDER_CALLBACK_SECRET,
+  }),
   store: new PostgresPaymentStore(database, config),
 });
 

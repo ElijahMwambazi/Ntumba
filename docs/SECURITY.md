@@ -17,14 +17,21 @@ Provider adapters must scrub upstream errors before returning them.
 The server does see a merchant destination transiently during provider-intent creation. TLS,
 restricted process access and careful crash/debug tooling are therefore required.
 
+The provider-intent outbox is intentionally payload-free. It stores no raw, encrypted or hashed
+destination. Recovery requires the client to resubmit the destination with the same idempotency
+key; a future autonomous worker requires a reviewed provider-side opaque tokenization capability.
+
 ## Provider callbacks
 
-- Verify signatures against the raw body in memory.
-- Reject stale timestamps and replayed event IDs where supported.
-- Normalize before persistence.
-- Persist only provider event ID, payload hash, normalized status and timestamps.
-- Never store the raw body.
-- Match provider reference, direction, amounts and assets to the original intent.
+- The fake-provider route verifies an HMAC-SHA256 signature against the timestamp and exact raw
+  body bytes in memory. `FAKE_PROVIDER_CALLBACK_SECRET` must contain at least 32 characters to
+  enable verification; absent configuration fails closed without preventing other development use.
+- Timestamps outside a five-minute tolerance are rejected. Identical event retries are idempotent;
+  conflicting reuse of a provider event ID is rejected.
+- Normalization happens only after signature verification. Persistence contains provider event ID,
+  payload hash, normalized status and lifecycle timestamps, never the raw body.
+- Provider reference, direction, source/settlement assets and integer amounts must match the
+  original intent and quote before insertion.
 
 ## Browser data and links
 

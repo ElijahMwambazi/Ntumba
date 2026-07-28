@@ -3,9 +3,11 @@
 ## Layers
 
 - Domain tests cover integer money, direction-aware fees, legal states and retention windows.
-- Provider tests cover deterministic idempotency, provider-direct output and merchant-invoice
-  pass-through.
-- API tests use Fastify injection with an in-memory safe-state repository.
+- Provider tests cover deterministic idempotency, provider-direct output, signed callback
+  normalization/timestamp rejection and merchant-invoice pass-through.
+- API tests use Fastify injection with an in-memory safe-state repository, including raw callback
+  signature, intent matching, duplicate and privacy behavior. Failure injection proves a pending
+  provider-intent outbox resumes with the same idempotency key after a provider timeout.
 - Storage tests cover schema-version serialization, loading, deletion, v1 migration and
   session-memory fallback.
 - Sharing tests cover native Web Share and unavailable fallback.
@@ -47,8 +49,11 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - Quote requests do not require or return merchant personal data.
 - ZMW is ngwee and Bitcoin is satoshis; no floating-point money.
 - Duplicate idempotency key returns one logical provider intent.
+- Provider failure leaves one staged intent and payload-free outbox row; retry completes that same
+  intent without persisting the destination.
 - Destination is absent from stored intent and response.
 - Raw callback body is verified in memory and only a hash/normalized event can persist.
+- Stale/tampered signatures, amount mismatches and conflicting event-ID replays cannot persist.
 - Provider collection cannot skip provider settlement.
 - Direct invoice is merchant-owned and is never substituted.
 - Direct settlement remains unverified without evidence.

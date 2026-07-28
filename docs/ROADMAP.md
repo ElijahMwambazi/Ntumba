@@ -8,9 +8,9 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Create the modular monolith workspace.
 - [x] Add reproducible build, type-check, lint and test commands.
 - [x] Add product, architecture, privacy, security and operations documents.
-- [ ] Run the entire build and test suite under pinned Node 24.18.0 in CI.
+- [x] Run the entire build and test suite under pinned Node 24.18.0 in CI.
   - [x] Configure GitHub Actions to run `yarn check` and Playwright under the pinned toolchain.
-  - [ ] Confirm the first successful GitHub Actions run after the workflow is pushed.
+  - [x] Confirm the first successful GitHub Actions run after the workflow is pushed.
 - [x] Add automated dependency and secret scanning.
 
 ## Phase 1 — Accountless non-custodial core
@@ -22,8 +22,8 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Persist safe quote/payment-intent state with idempotency.
 - [x] Add configurable expiry and automatic purge behavior.
 - [x] Add provider-direct and merchant-owned Lightning boundaries with safe fakes.
-- [ ] Add a signed callback route and append-only normalized provider-event ingestion.
-- [ ] Add a transactional outbox for retry-safe provider intent creation.
+- [x] Add a signed callback route and append-only normalized provider-event ingestion.
+- [x] Add a transactional outbox for retry-safe provider intent creation.
 
 ## Phase 2 — Merchant-first local PWA
 

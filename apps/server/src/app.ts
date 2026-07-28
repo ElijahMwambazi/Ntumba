@@ -22,6 +22,7 @@ import { InMemoryPaymentStore } from "./payment-store.js";
 import { InMemoryPublicRequestStore } from "./public-request-store.js";
 import { healthRoutes } from "./routes/health.js";
 import { type PaymentRouteDependencies, paymentIntentRoutes } from "./routes/payment-intents.js";
+import { providerCallbackRoutes } from "./routes/provider-callbacks.js";
 import { publicRequestRoutes } from "./routes/public-requests.js";
 import { quoteRoutes } from "./routes/quotes.js";
 
@@ -29,7 +30,9 @@ export async function buildApp(
   config: NtumbaConfig = loadConfig(),
   dependencies: PaymentRouteDependencies = {
     directLightningProvider: new FakeDirectLightningProvider(),
-    settlementProvider: new FakeSettlementProvider(),
+    settlementProvider: new FakeSettlementProvider({
+      callbackSecret: config.FAKE_PROVIDER_CALLBACK_SECRET,
+    }),
     store: new InMemoryPaymentStore(),
   },
   publicRequestStore = new InMemoryPublicRequestStore(),
@@ -107,6 +110,9 @@ export async function buildApp(
   await app.register(healthRoutes, { prefix: "/api" });
   await app.register(quoteRoutes(config, dependencies.store), { prefix: "/api/v1" });
   await app.register(paymentIntentRoutes(config, dependencies), { prefix: "/api/v1" });
+  await app.register(providerCallbackRoutes(dependencies.settlementProvider, dependencies.store), {
+    prefix: "/api/v1",
+  });
   await app.register(publicRequestRoutes(config, publicRequestStore), { prefix: "/api/v1" });
 
   if (config.SERVE_WEB) {
