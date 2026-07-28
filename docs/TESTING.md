@@ -18,6 +18,12 @@
 - PWA asset tests validate manifest metadata, icon dimensions, build output and the service-worker
   cache boundary. A production Playwright run installs that worker, checks its exact cache contents
   and proves offline navigation uses the reconnect-only shell.
+- Observability tests cover default disablement, strong-token configuration, constant-scope bearer
+  access, database failure redaction, exact aggregate store counts, bounded metric labels, raw-URL
+  rejection, callback/purge counters and explicit fake/unavailable rail semantics.
+- Repository observability checks reject operator routes/credentials in the web/public app,
+  fund-moving status adapters, unpinned ops images, published private ports, hardcoded provisioning
+  secrets and mutable/gradient dashboard configuration.
 - Playwright runs a Pixel 7 profile at a 390×844 CSS viewport and desktop Chromium at 1440×900,
   with additional responsive checks at 768×1024 and 1024×768.
 
@@ -77,6 +83,11 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - The install manifest has standard and maskable icons, the built public shell is complete, Cache
   Storage contains only its explicit public assets, and offline navigation cannot show stale
   payment state.
+- Operational endpoints are absent from the public app and disabled by default; enabled production
+  endpoints require the exact strong bearer token.
+- Metrics contain only aggregates and bounded labels, use registered route templates and render
+  fake/not-configured states rather than invented health, capacity or liquidity.
+- Compose keeps Prometheus and port 9091 private while binding Grafana only to `127.0.0.1`.
 
 ## Browser scenarios and artifacts
 

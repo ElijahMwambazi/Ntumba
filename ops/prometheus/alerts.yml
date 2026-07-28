@@ -1,0 +1,90 @@
+groups:
+  - name: ntumba-operator
+    interval: 30s
+    rules:
+      - alert: NtumbaMetricsTargetMissing
+        expr: up{job="ntumba-internal"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ntumba private metrics target is missing
+
+      - alert: NtumbaApiUnavailable
+        expr: absent(ntumba_server_process_up) == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ntumba API process is unavailable
+
+      - alert: NtumbaDatabaseUnavailable
+        expr: ntumba_database_available == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ntumba cannot read aggregate database state
+
+      - alert: NtumbaPendingOutboxOld
+        expr: ntumba_outbox_pending > 0 and ntumba_outbox_oldest_pending_age_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A payload-free provider outbox row has been pending for over 15 minutes
+
+      - alert: NtumbaProviderEventBacklogOld
+        expr: ntumba_provider_events_unprocessed > 0 and ntumba_provider_events_oldest_unprocessed_age_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A normalized provider event has been unprocessed for over 15 minutes
+
+      - alert: NtumbaPurgeJobOverdue
+        expr: ntumba_jobs_enabled == 1 and time() - ntumba_server_start_time_seconds > 7200 and (ntumba_purge_last_success_timestamp_seconds{source="job"} == 0 or time() - ntumba_purge_last_success_timestamp_seconds{source="job"} > 7200)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: The hourly operational-data purge has not succeeded for over two hours
+
+      - alert: NtumbaPurgeFailure
+        expr: increase(ntumba_purge_failures_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: An operational-data purge failed
+
+      - alert: NtumbaManualReviewPresent
+        expr: sum(ntumba_payment_intents{status="manual_review"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A retained payment intent requires manual review
+
+      - alert: NtumbaRefundPendingPresent
+        expr: sum(ntumba_payment_intents{status="refund_pending"}) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A retained payment intent is refund-pending
+
+      - alert: NtumbaCallbackVerificationFailures
+        expr: sum(increase(ntumba_provider_callbacks_total{outcome="rejected",reason=~"signature|timestamp|mismatch|conflict"}[10m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Callback verification failures increased above the conservative threshold
+
+      - alert: NtumbaLiveRateStale
+        expr: ntumba_mode_info{rate_mode="live"} == 1 and (ntumba_rate_last_success_timestamp_seconds == 0 or time() - ntumba_rate_last_success_timestamp_seconds > 120)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: The live BTC/ZMW rate is stale

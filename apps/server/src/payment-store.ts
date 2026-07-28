@@ -1,4 +1,9 @@
 import type { CreateQuoteResponse, PaymentDirection, PaymentStatus } from "@ntumba/contracts";
+import {
+  type OperationalSnapshot,
+  type OperationalSnapshotReader,
+  safeOutboxFailureCategory,
+} from "@ntumba/observability";
 import type { ProviderPaymentStatus } from "@ntumba/providers";
 
 export interface StoredQuote {
@@ -67,7 +72,7 @@ export interface AppendProviderEventResult {
   outcome: "conflict" | "duplicate" | "inserted";
 }
 
-export interface PaymentStore {
+export interface PaymentStore extends OperationalSnapshotReader {
   appendProviderEvent(event: StoredProviderEvent): Promise<AppendProviderEventResult>;
   completeProviderIntent(
     paymentIntentId: string,
@@ -251,6 +256,57 @@ export class InMemoryPaymentStore implements PaymentStore {
   ): Promise<StoredPaymentIntent | undefined> {
     const intentId = this.#intentIdsByIdempotencyKey.get(idempotencyKey);
     return intentId ? this.#intents.get(intentId) : undefined;
+  }
+
+  async readOperationalSnapshot(now: Date): Promise<OperationalSnapshot> {
+    const intentCounts = new Map<string, number>();
+    for (const intent of this.#intents.values()) {
+      const key = `${intent.direction}:${intent.status}`;
+      intentCounts.set(key, (intentCounts.get(key) ?? 0) + 1);
+    }
+    const pendingEvents = [...this.#events.values()]
+      .filter((event) => event.processedAt === null)
+      .sort((left, right) => left.receivedAt.getTime() - right.receivedAt.getTime());
+    const pendingOutbox = [...this.#outbox.values()]
+      .filter((entry) => entry.processedAt === null)
+      .sort((left, right) => left.lastAttemptAt.getTime() - right.lastAttemptAt.getTime());
+    const lastFailure = [...pendingOutbox]
+      .filter((entry) => entry.lastFailureCode !== null)
+      .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0];
+
+    return {
+      intents: [...intentCounts].map(([key, count]) => {
+        const [direction, status] = key.split(":") as [PaymentDirection, PaymentStatus];
+        return { count, direction, status };
+      }),
+      lastAcceptedCallbackAt:
+        [...this.#events.values()].sort(
+          (left, right) => right.receivedAt.getTime() - left.receivedAt.getTime(),
+        )[0]?.receivedAt ?? null,
+      oldestPendingOutboxAt: pendingOutbox[0]?.lastAttemptAt ?? null,
+      oldestUnprocessedEventAt: pendingEvents[0]?.receivedAt ?? null,
+      outboxAttemptBuckets: {
+        "1": pendingOutbox.filter((entry) => entry.attemptCount === 1).length,
+        "2_3": pendingOutbox.filter((entry) => entry.attemptCount >= 2 && entry.attemptCount <= 3)
+          .length,
+        "4_plus": pendingOutbox.filter((entry) => entry.attemptCount >= 4).length,
+      },
+      outboxLastFailureCategory: safeOutboxFailureCategory(lastFailure?.lastFailureCode ?? null),
+      pendingOutbox: pendingOutbox.length,
+      purgeEligible: {
+        events: [...this.#events.values()].filter((event) => event.purgeAt <= now).length,
+        intents: [...this.#intents.values()].filter((intent) => intent.purgeAt <= now).length,
+        outbox: [...this.#outbox.values()].filter((entry) => entry.purgeAt <= now).length,
+        quotes: [...this.#quotes.values()].filter((quote) => quote.purgeAt <= now).length,
+      },
+      retained: {
+        events: this.#events.size,
+        intents: this.#intents.size,
+        outbox: this.#outbox.size,
+        quotes: this.#quotes.size,
+      },
+      unprocessedProviderEvents: pendingEvents.length,
+    };
   }
 
   async purgeDue(

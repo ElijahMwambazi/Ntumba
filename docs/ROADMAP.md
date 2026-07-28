@@ -39,6 +39,15 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Capture and visually review 390×844 and 1440×900 UI screenshots.
 - [x] Add installable PWA manifest, icons and offline shell.
 
+## Phase 2.5 — Private operator observability
+
+- [x] Add a disabled-by-default, bearer-protected internal health and metrics listener.
+- [x] Export aggregate process, HTTP, payment, callback, outbox, retention and truthful rail-state
+      metrics with bounded privacy-safe labels.
+- [x] Provision version-pinned Prometheus, conservative alerts and a loopback-only Grafana service
+      through the opt-in Compose `ops` profile.
+- [x] Provision the read-only **Ntumba Operator** dashboard and first-response runbooks.
+
 ## Phase 3 — Direct Bitcoin rail
 
 - [ ] Resolve Lightning addresses safely into merchant-owned invoices.
@@ -66,9 +75,13 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 
 ## Phase 6 — Solo-operator hardening
 
+- [ ] Add live read-only Lightning operational integration without fund-moving credentials.
+- [ ] Add live provider status, capacity and transaction-limit integration.
 - [ ] Add provider and rate circuit breakers.
 - [ ] Add automated reconciliation.
-- [ ] Add service pause controls and status page.
+- [ ] Add reviewed service pause controls.
+- [ ] Add a public status page separated from private operator metrics.
+- [ ] Add real-money alerts only after live rails and alert evidence exist.
 - [ ] Perform backup restoration, data-purge and incident drills.
 - [ ] Measure manual interventions per 100 payments.
 

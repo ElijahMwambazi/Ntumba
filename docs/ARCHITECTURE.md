@@ -18,6 +18,10 @@ Anonymous payer <── /pay/:publicId link ──── Merchant device
                                                   └── Merchant destination
 
 Fastify API ── opaque operational state only ──> PostgreSQL + pg-boss purge job
+
+Private Prometheus ── bearer token ──> Internal Fastify listener ── aggregate reads only
+       │                                      (disabled by default; separate port)
+       └──> loopback-only Grafana
 ```
 
 ## Module boundaries
@@ -27,8 +31,10 @@ Fastify API ── opaque operational state only ──> PostgreSQL + pg-boss pu
 - `domain`: integer monetary calculation, state transitions and retention windows.
 - `database`: minimal operational schema and purge transaction.
 - `providers`: provider-direct settlement contract and direct merchant Lightning contract.
+- `observability`: bounded metric names/labels, aggregate snapshots and future read-only status
+  interfaces with no fund-moving methods.
 - `server`: API routes, persistence adapter, development-only public request store and scheduled
-  jobs.
+  jobs, plus a separately bound private health/metrics listener.
 - `web`: merchant creation, sharing, guest checkout and local IndexedDB history.
 
 ## Provider-direct bridge
@@ -76,6 +82,12 @@ and record `processed_at` transactionally.
 
 Normal server startup uses the PostgreSQL store for quotes and payment intents. Unit/API tests
 inject an in-memory implementation of the same safe record shape.
+
+The same store boundary exposes aggregate operational snapshots. PostgreSQL performs grouped/count
+queries and returns no row identifiers or sensitive fields. Prometheus process counters observe
+registered public route templates, normalized callback outcomes and purge results. The internal
+listener is constructed only when `OPS_ENABLED=true`, requires a strong bearer token and never
+registers on the public Fastify instance.
 
 The public checkout projection is currently a separate, short-lived in-memory store. It is keyed
 by an opaque UUID, contains only the safe payer options required by guest checkout and is purged

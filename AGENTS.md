@@ -31,6 +31,10 @@ Payment safety, privacy, recoverability and operator clarity are product feature
 - Do not expose destinations, invoices, provider credentials or callback bodies in logs or errors.
 - Only fake providers are active. Live provider actions require explicit authorization, reviewed
   contracts and test credentials.
+- Keep operator health/metrics on the disabled-by-default internal listener. Never add operator
+  routes or credentials to the merchant PWA or public API listener.
+- Metrics use aggregate counts, bounded labels and registered route templates only. Never label or
+  log merchant/payer data, payment/public/local IDs, opaque provider references or callback bodies.
 
 ## Expected workflow
 

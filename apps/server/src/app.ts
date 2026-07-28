@@ -10,6 +10,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import type { NtumbaConfig } from "@ntumba/config";
 import { loadConfig } from "@ntumba/config";
+import type { NtumbaMetrics } from "@ntumba/observability";
 import { FakeDirectLightningProvider, FakeSettlementProvider } from "@ntumba/providers";
 import Fastify from "fastify";
 import {
@@ -36,6 +37,7 @@ export async function buildApp(
     store: new InMemoryPaymentStore(),
   },
   publicRequestStore = new InMemoryPublicRequestStore(),
+  metrics?: NtumbaMetrics,
 ) {
   const logger =
     config.NODE_ENV === "test"
@@ -57,6 +59,24 @@ export async function buildApp(
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  if (metrics) {
+    const starts = new WeakMap<object, bigint>();
+    app.addHook("onRequest", async (request) => {
+      starts.set(request, process.hrtime.bigint());
+    });
+    app.addHook("onResponse", async (request, reply) => {
+      const startedAt = starts.get(request);
+      metrics.observeHttp({
+        durationSeconds: startedAt
+          ? Number(process.hrtime.bigint() - startedAt) / 1_000_000_000
+          : 0,
+        method: request.method,
+        routeTemplate: request.routeOptions.url,
+        statusCode: reply.statusCode,
+      });
+    });
+  }
 
   await app.register(sensible);
   await app.register(helmet, config.SERVE_WEB ? {} : { contentSecurityPolicy: false });
@@ -109,10 +129,13 @@ export async function buildApp(
 
   await app.register(healthRoutes, { prefix: "/api" });
   await app.register(quoteRoutes(config, dependencies.store), { prefix: "/api/v1" });
-  await app.register(paymentIntentRoutes(config, dependencies), { prefix: "/api/v1" });
-  await app.register(providerCallbackRoutes(dependencies.settlementProvider, dependencies.store), {
+  await app.register(paymentIntentRoutes(config, { ...dependencies, metrics }), {
     prefix: "/api/v1",
   });
+  await app.register(
+    providerCallbackRoutes(dependencies.settlementProvider, dependencies.store, metrics),
+    { prefix: "/api/v1" },
+  );
   await app.register(publicRequestRoutes(config, publicRequestStore), { prefix: "/api/v1" });
 
   if (config.SERVE_WEB) {

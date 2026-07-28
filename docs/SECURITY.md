@@ -46,6 +46,21 @@ Checkout fragments are not sent in HTTP requests but are bearer information. Use
 posting links publicly, and the app must not load third-party analytics/resources that can inspect
 the fragment.
 
+## Operator observability boundary
+
+Operational endpoints use a separate listener, are disabled by default and require a 32+ character
+bearer token whenever enabled. Container deployments read the token from a Compose secret. The
+public port and merchant bundle contain no operator route or credential. Internal authorization
+headers are redacted, tokens are compared in constant time and database failures return no error
+detail. Prometheus and the internal port are not published; Grafana binds to `127.0.0.1`, disables
+anonymous access/sign-up/analytics, update checks and suggested-plugin preinstallation, and
+receives its admin password from a secret. This avoids routine outbound Grafana catalog requests.
+
+The dashboard is read-only. Read-only observability adapters must never accept an LND admin
+macaroon, wallet seed/unlock credential or expose invoice-payment, disbursement, refund or service
+pause methods. Future remote access should use separately administered Tailscale Serve within the
+operator tailnet, never a public Funnel/tunnel.
+
 ## Launch gates
 
 Before real funds: complete provider security review, callback fixtures, penetration testing,

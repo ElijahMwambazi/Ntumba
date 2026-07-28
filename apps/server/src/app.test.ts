@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import type { NtumbaConfig } from "@ntumba/config";
+import { NtumbaMetrics } from "@ntumba/observability";
 import { FakeDirectLightningProvider, FakeSettlementProvider } from "@ntumba/providers";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
@@ -28,6 +29,10 @@ const config: NtumbaConfig = {
   JOBS_ENABLED: false,
   LOG_LEVEL: "silent",
   NODE_ENV: "test",
+  NTUMBA_BUILD_COMMIT: "development",
+  OPS_ENABLED: false,
+  OPS_HOST: "127.0.0.1",
+  OPS_PORT: 9091,
   PORT: 3000,
   QUOTE_RETENTION_SECONDS: 3_600,
   QUOTE_TTL_SECONDS: 60,
@@ -79,6 +84,15 @@ describe("Ntumba API", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ service: "ntumba", status: "ok" });
+  });
+
+  it("does not expose operator routes on the public application", async () => {
+    const app = await buildApp(config);
+    openApps.push(app);
+
+    for (const url of ["/metrics", "/ops", "/admin"]) {
+      expect((await app.inject({ method: "GET", url })).statusCode).toBe(404);
+    }
   });
 
   it("creates a quote without merchant destination data", async () => {
@@ -221,11 +235,24 @@ describe("Ntumba API", () => {
     const now = new Date();
     const secret = "x".repeat(32);
     const store = new InMemoryPaymentStore();
-    const app = await buildApp(config, {
-      directLightningProvider: new FakeDirectLightningProvider(),
-      settlementProvider: new FakeSettlementProvider({ callbackSecret: secret, now: () => now }),
-      store,
+    const metrics = new NtumbaMetrics({
+      buildCommit: "development",
+      jobsEnabled: false,
+      providerMode: "fake",
+      publicRequestStore: "development_non_durable",
+      rateMode: "fake",
+      startedAt: now,
     });
+    const app = await buildApp(
+      config,
+      {
+        directLightningProvider: new FakeDirectLightningProvider(),
+        settlementProvider: new FakeSettlementProvider({ callbackSecret: secret, now: () => now }),
+        store,
+      },
+      undefined,
+      metrics,
+    );
     openApps.push(app);
     const quoted = await quote(app);
     const intent = await app.inject({
@@ -289,6 +316,12 @@ describe("Ntumba API", () => {
     });
     expect(conflictingReplay.statusCode).toBe(409);
     expect(await store.getProviderEvent("fake", "fake-event-1")).toEqual(stored);
+    const metricText = metrics.render(await store.readOperationalSnapshot(now), true, now);
+    expect(metricText).toContain('outcome="accepted",reason="none"} 1');
+    expect(metricText).toContain('outcome="duplicate",reason="none"} 1');
+    expect(metricText).toContain('outcome="rejected",reason="signature"} 1');
+    expect(metricText).toContain('outcome="rejected",reason="conflict"} 1');
+    expect(metricText).not.toContain(callbackPayload.providerReference);
   });
 
   it("rejects a signed callback whose amount does not match the retained intent", async () => {

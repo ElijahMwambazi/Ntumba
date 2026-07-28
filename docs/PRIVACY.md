@@ -37,6 +37,15 @@ Raw merchant destinations are not placed in route parameters, query strings or U
 
 There are no merchant profiles, raw destinations, invoices, payer phone numbers or raw callbacks.
 
+## Private operational metrics
+
+The optional internal listener exposes aggregate counts and safe process state only. Metrics never
+contain merchant names/references, phone numbers, Lightning addresses/invoices, public/local IDs,
+payment-intent IDs, provider references, destination tokens, idempotency keys or callback bodies.
+HTTP labels use registered Fastify route templates rather than raw URLs. Failure and callback
+reason labels come from fixed bounded categories. Prometheus stays on the private Compose network;
+Grafana binds to host loopback and has no third-party analytics enabled.
+
 ## Development public requests
 
 Guest checkout needs a short-lived presentation projection. The current implementation keeps it

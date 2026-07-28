@@ -28,6 +28,8 @@ Ntumba coordinates intents and status. It does not receive, control, forward or 
 - Signed fake-provider callbacks with append-only normalized event ingestion.
 - Payload-free transactional provider-intent outbox with idempotent client-assisted recovery.
 - Minimal PostgreSQL state with normalized events and scheduled expiry/purge support.
+- Disabled-by-default private operator listener with aggregate Prometheus metrics and a provisioned
+  loopback-only Grafana dashboard under the opt-in Compose `ops` profile.
 - Safe fake providers only.
 
 No real funds or live providers are supported.
@@ -62,6 +64,7 @@ yarn test:e2e
 
 See [Product](docs/PRODUCT.md), [UI/UX](docs/UI_UX.md),
 [Architecture](docs/ARCHITECTURE.md), [Payment flows](docs/PAYMENT_FLOWS.md),
-[Privacy](docs/PRIVACY.md) and [Development](DEVELOPMENT.md).
+[Privacy](docs/PRIVACY.md), [Operator dashboard](docs/OPERATOR_DASHBOARD.md) and
+[Development](DEVELOPMENT.md).
 
 Ntumba is private software. No open-source license is granted.

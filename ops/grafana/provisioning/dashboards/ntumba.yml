@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: Ntumba Operator
+    orgId: 1
+    folder: Ntumba
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

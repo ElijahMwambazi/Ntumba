@@ -8,6 +8,7 @@ import {
   paymentIntentStatusResponseSchema,
 } from "@ntumba/contracts";
 import { createRetentionWindow } from "@ntumba/domain";
+import type { NtumbaMetrics } from "@ntumba/observability";
 import type {
   DirectLightningProvider,
   ProviderPaymentIntent,
@@ -15,6 +16,7 @@ import type {
 } from "@ntumba/providers";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { purgeWithMetrics } from "../observability.js";
 import type {
   PaymentStore,
   StoredPaymentIntent,
@@ -23,6 +25,7 @@ import type {
 
 export interface PaymentRouteDependencies {
   directLightningProvider: DirectLightningProvider;
+  metrics?: NtumbaMetrics | undefined;
   settlementProvider: SettlementProvider;
   store: PaymentStore;
 }
@@ -109,7 +112,12 @@ export function paymentIntentRoutes(
         },
       },
       async (request, reply) => {
-        await dependencies.store.purgeDue(new Date());
+        await purgeWithMetrics(
+          dependencies.store,
+          dependencies.metrics,
+          "opportunistic",
+          new Date(),
+        );
         const quote = await dependencies.store.getQuote(request.body.quoteId);
         if (!quote) {
           throw app.httpErrors.gone("The quote has expired. Create a new quote.");
@@ -279,7 +287,12 @@ export function paymentIntentRoutes(
         },
       },
       async (request) => {
-        await dependencies.store.purgeDue(new Date());
+        await purgeWithMetrics(
+          dependencies.store,
+          dependencies.metrics,
+          "opportunistic",
+          new Date(),
+        );
         const intent = await dependencies.store.getIntent(request.params.id);
         if (!intent) {
           throw app.httpErrors.notFound("Payment request not found or no longer retained.");

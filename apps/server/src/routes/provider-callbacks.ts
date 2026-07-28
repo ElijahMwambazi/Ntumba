@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import type { NtumbaMetrics } from "@ntumba/observability";
 import { ProviderCallbackVerificationError, type SettlementProvider } from "@ntumba/providers";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { purgeWithMetrics } from "../observability.js";
 import type { PaymentStore, StoredQuote } from "../payment-store.js";
 
 const callbackResponseSchema = z.object({ status: z.enum(["accepted", "duplicate"]) });
@@ -32,6 +34,7 @@ function callbackMatchesQuote(
 export function providerCallbackRoutes(
   settlementProvider: SettlementProvider,
   store: PaymentStore,
+  metrics?: NtumbaMetrics,
 ): FastifyPluginAsyncZod {
   return async (app) => {
     app.removeContentTypeParser("application/json");
@@ -63,18 +66,20 @@ export function providerCallbackRoutes(
           });
         } catch (error) {
           if (error instanceof ProviderCallbackVerificationError) {
+            metrics?.recordCallbackRejected(error.reason);
             throw app.httpErrors.unauthorized("The callback signature or payload is invalid.");
           }
           throw error;
         }
 
         const receivedAt = new Date();
-        await store.purgeDue(receivedAt);
+        await purgeWithMetrics(store, metrics, "opportunistic", receivedAt);
         const intent = await store.findIntentByProviderReference(
           "fake",
           callback.providerReference,
         );
         if (!intent) {
+          metrics?.recordCallbackRejected("mismatch");
           throw app.httpErrors.notFound("The callback payment intent was not found.");
         }
         const quote = await store.getQuote(intent.quoteId);
@@ -82,6 +87,7 @@ export function providerCallbackRoutes(
           throw new Error("The callback payment intent has no retained quote.");
         }
         if (intent.direction !== callback.direction || !callbackMatchesQuote(callback, quote)) {
+          metrics?.recordCallbackRejected("mismatch");
           throw app.httpErrors.conflict("The callback does not match the payment intent.");
         }
 
@@ -98,13 +104,16 @@ export function providerCallbackRoutes(
           receivedAt,
         });
         if (result.outcome === "conflict") {
+          metrics?.recordCallbackRejected("conflict");
           throw app.httpErrors.conflict(
             "The provider event ID was already used for another event.",
           );
         }
         if (result.outcome === "duplicate") {
+          metrics?.recordCallback("duplicate");
           return reply.status(200).send({ status: "duplicate" });
         }
+        metrics?.recordCallback("accepted");
         return reply.status(202).send({ status: "accepted" });
       },
     );

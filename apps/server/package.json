@@ -22,6 +22,7 @@
     "@ntumba/contracts": "workspace:*",
     "@ntumba/database": "workspace:*",
     "@ntumba/domain": "workspace:*",
+    "@ntumba/observability": "workspace:*",
     "@ntumba/providers": "workspace:*",
     "dotenv": "17.4.2",
     "drizzle-orm": "0.45.2",

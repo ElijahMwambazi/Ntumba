@@ -12,6 +12,7 @@
     { "path": "../../packages/contracts" },
     { "path": "../../packages/database" },
     { "path": "../../packages/domain" },
+    { "path": "../../packages/observability" },
     { "path": "../../packages/providers" }
   ]
 }

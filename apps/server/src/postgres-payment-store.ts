@@ -9,7 +9,8 @@ import {
   quotes,
 } from "@ntumba/database";
 import { formatZmwFromMinor } from "@ntumba/domain";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { type OperationalSnapshot, safeOutboxFailureCategory } from "@ntumba/observability";
+import { and, asc, between, count, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type {
   AppendProviderEventResult,
   PaymentStore,
@@ -331,6 +332,151 @@ export class PostgresPaymentStore implements PaymentStore {
       ),
     });
     return row ? this.mapProviderEvent(row) : undefined;
+  }
+
+  async readOperationalSnapshot(now: Date): Promise<OperationalSnapshot> {
+    const countRows = async (
+      table:
+        | typeof quotes
+        | typeof paymentIntents
+        | typeof providerEvents
+        | typeof providerIntentOutbox,
+    ) => {
+      const [row] = await this.database.select({ value: count() }).from(table);
+      return row?.value ?? 0;
+    };
+    const [
+      intentCounts,
+      retainedQuotes,
+      retainedIntents,
+      retainedEvents,
+      retainedOutbox,
+      dueQuotes,
+      dueIntents,
+      dueEvents,
+      dueOutbox,
+      pendingEventCount,
+      oldestPendingEvent,
+      lastAcceptedCallback,
+      pendingOutboxCount,
+      oldestPendingOutbox,
+      oneAttempt,
+      twoToThreeAttempts,
+      fourPlusAttempts,
+      lastOutboxFailure,
+    ] = await Promise.all([
+      this.database
+        .select({
+          count: count(),
+          direction: paymentIntents.direction,
+          status: paymentIntents.status,
+        })
+        .from(paymentIntents)
+        .groupBy(paymentIntents.direction, paymentIntents.status),
+      countRows(quotes),
+      countRows(paymentIntents),
+      countRows(providerEvents),
+      countRows(providerIntentOutbox),
+      this.database.select({ value: count() }).from(quotes).where(lte(quotes.purgeAt, now)),
+      this.database
+        .select({ value: count() })
+        .from(paymentIntents)
+        .where(lte(paymentIntents.purgeAt, now)),
+      this.database
+        .select({ value: count() })
+        .from(providerEvents)
+        .where(lte(providerEvents.purgeAt, now)),
+      this.database
+        .select({ value: count() })
+        .from(providerIntentOutbox)
+        .where(lte(providerIntentOutbox.purgeAt, now)),
+      this.database
+        .select({ value: count() })
+        .from(providerEvents)
+        .where(isNull(providerEvents.processedAt)),
+      this.database
+        .select({ receivedAt: providerEvents.receivedAt })
+        .from(providerEvents)
+        .where(isNull(providerEvents.processedAt))
+        .orderBy(asc(providerEvents.receivedAt))
+        .limit(1),
+      this.database
+        .select({ receivedAt: providerEvents.receivedAt })
+        .from(providerEvents)
+        .orderBy(desc(providerEvents.receivedAt))
+        .limit(1),
+      this.database
+        .select({ value: count() })
+        .from(providerIntentOutbox)
+        .where(isNull(providerIntentOutbox.processedAt)),
+      this.database
+        .select({ lastAttemptAt: providerIntentOutbox.lastAttemptAt })
+        .from(providerIntentOutbox)
+        .where(isNull(providerIntentOutbox.processedAt))
+        .orderBy(asc(providerIntentOutbox.lastAttemptAt))
+        .limit(1),
+      this.database
+        .select({ value: count() })
+        .from(providerIntentOutbox)
+        .where(
+          and(isNull(providerIntentOutbox.processedAt), eq(providerIntentOutbox.attemptCount, 1)),
+        ),
+      this.database
+        .select({ value: count() })
+        .from(providerIntentOutbox)
+        .where(
+          and(
+            isNull(providerIntentOutbox.processedAt),
+            between(providerIntentOutbox.attemptCount, 2, 3),
+          ),
+        ),
+      this.database
+        .select({ value: count() })
+        .from(providerIntentOutbox)
+        .where(
+          and(isNull(providerIntentOutbox.processedAt), gte(providerIntentOutbox.attemptCount, 4)),
+        ),
+      this.database
+        .select({ lastFailureCode: providerIntentOutbox.lastFailureCode })
+        .from(providerIntentOutbox)
+        .where(
+          and(
+            isNull(providerIntentOutbox.processedAt),
+            isNotNull(providerIntentOutbox.lastFailureCode),
+          ),
+        )
+        .orderBy(desc(providerIntentOutbox.updatedAt))
+        .limit(1),
+    ]);
+
+    return {
+      intents: intentCounts,
+      lastAcceptedCallbackAt: lastAcceptedCallback[0]?.receivedAt ?? null,
+      oldestPendingOutboxAt: oldestPendingOutbox[0]?.lastAttemptAt ?? null,
+      oldestUnprocessedEventAt: oldestPendingEvent[0]?.receivedAt ?? null,
+      outboxAttemptBuckets: {
+        "1": oneAttempt[0]?.value ?? 0,
+        "2_3": twoToThreeAttempts[0]?.value ?? 0,
+        "4_plus": fourPlusAttempts[0]?.value ?? 0,
+      },
+      outboxLastFailureCategory: safeOutboxFailureCategory(
+        lastOutboxFailure[0]?.lastFailureCode ?? null,
+      ),
+      pendingOutbox: pendingOutboxCount[0]?.value ?? 0,
+      purgeEligible: {
+        events: dueEvents[0]?.value ?? 0,
+        intents: dueIntents[0]?.value ?? 0,
+        outbox: dueOutbox[0]?.value ?? 0,
+        quotes: dueQuotes[0]?.value ?? 0,
+      },
+      retained: {
+        events: retainedEvents,
+        intents: retainedIntents,
+        outbox: retainedOutbox,
+        quotes: retainedQuotes,
+      },
+      unprocessedProviderEvents: pendingEventCount[0]?.value ?? 0,
+    };
   }
 
   async purgeDue(

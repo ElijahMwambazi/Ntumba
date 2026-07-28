@@ -19,6 +19,75 @@ const quote: CreateQuoteResponse = {
 };
 
 describe("payment store retention", () => {
+  it("returns correct aggregate operational counts without identifiers", async () => {
+    const store = new InMemoryPaymentStore();
+    const now = new Date("2026-07-27T10:00:30.000Z");
+    await store.saveQuote({
+      amountZmwMinor: 10_000n,
+      feeZmwMinor: 500n,
+      merchantAmountSats: null,
+      merchantAmountZmwMinor: 10_000n,
+      payerAmountSats: 5_834n,
+      payerAmountZmwMinor: null,
+      purgeAt: new Date("2026-07-27T10:00:20.000Z"),
+      rateZmwMinorPerBitcoin: 180_000_000n,
+      response: quote,
+    });
+    const intent: StoredPaymentIntent = {
+      createdAt: new Date("2026-07-27T10:00:00.000Z"),
+      destinationToken: null,
+      direction: "btc_to_zmw",
+      expiresAt: new Date("2026-07-27T10:01:00.000Z"),
+      failureCode: null,
+      id: "14c9fd48-b2b4-436a-989c-f540122c8dad",
+      idempotencyKey: "snapshot-intent-012345",
+      provider: "fake",
+      providerReference: null,
+      purgeAt: new Date("2026-07-27T11:00:00.000Z"),
+      quoteId: quote.quoteId,
+      status: "created",
+      updatedAt: new Date("2026-07-27T10:00:00.000Z"),
+    };
+    await store.stageProviderIntent(intent, {
+      attemptCount: 1,
+      createdAt: intent.createdAt,
+      id: "5166cf71-8eda-4fe1-97ae-711275c86307",
+      lastAttemptAt: intent.createdAt,
+      lastFailureCode: null,
+      paymentIntentId: intent.id,
+      processedAt: null,
+      provider: "fake",
+      purgeAt: intent.purgeAt,
+      updatedAt: intent.updatedAt,
+    });
+    await store.recordProviderIntentFailure(intent.id, "PROVIDER_REQUEST_FAILED", now);
+    await store.appendProviderEvent({
+      id: "26a4370a-5839-462b-b158-e30071b40bf7",
+      normalizedStatus: "collecting",
+      occurredAt: now,
+      payloadHash: "a".repeat(64),
+      paymentIntentId: intent.id,
+      processedAt: null,
+      provider: "fake",
+      providerEventId: "aggregate-event",
+      purgeAt: intent.purgeAt,
+      receivedAt: now,
+    });
+
+    const snapshot = await store.readOperationalSnapshot(now);
+    expect(snapshot).toMatchObject({
+      intents: [{ count: 1, direction: "btc_to_zmw", status: "created" }],
+      outboxAttemptBuckets: { "1": 1, "2_3": 0, "4_plus": 0 },
+      outboxLastFailureCategory: "provider_request_failed",
+      pendingOutbox: 1,
+      purgeEligible: { events: 0, intents: 0, outbox: 0, quotes: 1 },
+      retained: { events: 1, intents: 1, outbox: 1, quotes: 1 },
+      unprocessedProviderEvents: 1,
+    });
+    expect(JSON.stringify(snapshot)).not.toContain(intent.id);
+    expect(JSON.stringify(snapshot)).not.toContain(intent.idempotencyKey);
+  });
+
   it("purges due operational records without retaining a destination", async () => {
     const store = new InMemoryPaymentStore();
     await store.saveQuote({

@@ -25,9 +25,12 @@ const callbackStatuses = new Set<ProviderPaymentStatus>([
 ]);
 
 export class ProviderCallbackVerificationError extends Error {
-  constructor() {
+  readonly reason: "malformed" | "signature" | "timestamp";
+
+  constructor(reason: "malformed" | "signature" | "timestamp" = "malformed") {
     super("Provider callback verification failed.");
     this.name = "ProviderCallbackVerificationError";
+    this.reason = reason;
   }
 }
 
@@ -45,7 +48,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function callbackString(value: unknown, maximumLength = 200): string {
   if (typeof value !== "string" || value.length === 0 || value.length > maximumLength) {
-    throw new ProviderCallbackVerificationError();
+    throw new ProviderCallbackVerificationError("malformed");
   }
   return value;
 }
@@ -53,21 +56,21 @@ function callbackString(value: unknown, maximumLength = 200): string {
 function callbackAmount(value: unknown): bigint {
   const amount = callbackString(value, 30);
   if (!/^[1-9]\d*$/.test(amount)) {
-    throw new ProviderCallbackVerificationError();
+    throw new ProviderCallbackVerificationError("malformed");
   }
   return BigInt(amount);
 }
 
 function callbackAsset(value: unknown): ProviderAsset {
   if (value !== "BTC" && value !== "ZMW") {
-    throw new ProviderCallbackVerificationError();
+    throw new ProviderCallbackVerificationError("malformed");
   }
   return value;
 }
 
 function callbackDirection(value: unknown): BridgeDirection {
   if (value !== "btc_to_zmw" && value !== "zmw_to_btc") {
-    throw new ProviderCallbackVerificationError();
+    throw new ProviderCallbackVerificationError("malformed");
   }
   return value;
 }
@@ -152,7 +155,7 @@ export class FakeSettlementProvider implements SettlementProvider {
       !signature ||
       !/^sha256=[a-f0-9]{64}$/.test(signature)
     ) {
-      throw new ProviderCallbackVerificationError();
+      throw new ProviderCallbackVerificationError("signature");
     }
 
     const signedAt = Number(timestamp) * 1_000;
@@ -160,7 +163,7 @@ export class FakeSettlementProvider implements SettlementProvider {
       !Number.isSafeInteger(signedAt) ||
       Math.abs(this.#now().getTime() - signedAt) > this.#callbackToleranceMilliseconds
     ) {
-      throw new ProviderCallbackVerificationError();
+      throw new ProviderCallbackVerificationError("timestamp");
     }
 
     const expectedSignature = createHmac("sha256", this.#callbackSecret)
@@ -173,17 +176,17 @@ export class FakeSettlementProvider implements SettlementProvider {
       suppliedSignature.length !== expectedSignature.length ||
       !timingSafeEqual(suppliedSignature, expectedSignature)
     ) {
-      throw new ProviderCallbackVerificationError();
+      throw new ProviderCallbackVerificationError("signature");
     }
 
     let payload: unknown;
     try {
       payload = JSON.parse(Buffer.from(input.rawBody).toString("utf8"));
     } catch {
-      throw new ProviderCallbackVerificationError();
+      throw new ProviderCallbackVerificationError("malformed");
     }
     if (!isRecord(payload) || !isRecord(payload.source) || !isRecord(payload.settlement)) {
-      throw new ProviderCallbackVerificationError();
+      throw new ProviderCallbackVerificationError("malformed");
     }
 
     const occurredAt = new Date(callbackString(payload.occurredAt, 40));
@@ -192,7 +195,7 @@ export class FakeSettlementProvider implements SettlementProvider {
       Number.isNaN(occurredAt.getTime()) ||
       !callbackStatuses.has(status as ProviderPaymentStatus)
     ) {
-      throw new ProviderCallbackVerificationError();
+      throw new ProviderCallbackVerificationError("malformed");
     }
 
     const payloadHash = createHash("sha256").update(input.rawBody).digest("hex");

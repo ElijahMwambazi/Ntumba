@@ -971,6 +971,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@ntumba/observability@workspace:*, @ntumba/observability@workspace:packages/observability":
+  version: 0.0.0-use.local
+  resolution: "@ntumba/observability@workspace:packages/observability"
+  dependencies:
+    "@types/node": "npm:24.10.13"
+    typescript: "npm:7.0.2"
+    vitest: "npm:4.1.10"
+  languageName: unknown
+  linkType: soft
+
 "@ntumba/providers@workspace:*, @ntumba/providers@workspace:packages/providers":
   version: 0.0.0-use.local
   resolution: "@ntumba/providers@workspace:packages/providers"
@@ -996,6 +1006,7 @@ __metadata:
     "@ntumba/contracts": "workspace:*"
     "@ntumba/database": "workspace:*"
     "@ntumba/domain": "workspace:*"
+    "@ntumba/observability": "workspace:*"
     "@ntumba/providers": "workspace:*"
     "@types/node": "npm:24.10.13"
     dotenv: "npm:17.4.2"

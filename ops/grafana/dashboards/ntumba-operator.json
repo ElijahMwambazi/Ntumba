@@ -1,0 +1,937 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "panels": [],
+      "title": "1. Overview",
+      "type": "row"
+    },
+    {
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "id": 2,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h2>Development only</h2><p>Safe fake providers and fake BTC/ZMW rate. No real funds, live node, or live mobile-money rail.</p></div>",
+        "mode": "html"
+      },
+      "title": "Overall status",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "red", "text": "Down" },
+                "1": { "color": "green", "text": "Available" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 3, "x": 6, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "ntumba_server_process_up", "refId": "A" }],
+      "title": "API process",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "red", "text": "Unavailable" },
+                "1": { "color": "green", "text": "Available" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 3, "x": 9, "y": 1 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "ntumba_database_available", "refId": "A" }],
+      "title": "Database",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": { "text": "Disabled" },
+                "1": { "color": "green", "text": "Enabled" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "orange", "value": null }, { "color": "green", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 3, "x": 12, "y": 1 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "ntumba_jobs_enabled", "refId": "A" }],
+      "title": "Jobs",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 5, "w": 3, "x": 15, "y": 1 },
+      "id": 6,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h3>Provider</h3><p><b>Fake only</b></p><p>Collection and settlement are development simulations.</p></div>",
+        "mode": "html"
+      },
+      "title": "Provider mode",
+      "type": "text"
+    },
+    {
+      "gridPos": { "h": 5, "w": 3, "x": 18, "y": 1 },
+      "id": 7,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h3>Rate source</h3><p><b>Fake static rate</b></p><p>Not freshness checked and not suitable for real payments.</p></div>",
+        "mode": "html"
+      },
+      "title": "Rate mode",
+      "type": "text"
+    },
+    {
+      "gridPos": { "h": 5, "w": 3, "x": 21, "y": 1 },
+      "id": 8,
+      "options": {
+        "content": "<div style=\"color:#a43d35\"><h3>Non-durable</h3><p>Public requests exist only in process memory and disappear on restart.</p></div>",
+        "mode": "html"
+      },
+      "title": "Public request store",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "dark-green", "mode": "fixed" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 6 },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "left",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "targets": [
+        { "expr": "ntumba_build_info", "legendFormat": "Build {{commit}}", "refId": "A" }
+      ],
+      "title": "Build commit",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 10,
+      "panels": [],
+      "title": "2. Attention required",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 10 },
+      "id": 11,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        { "expr": "sum(ntumba_payment_intents{status=\"manual_review\"})", "refId": "A" }
+      ],
+      "title": "Manual review",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 10 },
+      "id": 12,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        { "expr": "sum(ntumba_payment_intents{status=\"refund_pending\"})", "refId": "A" }
+      ],
+      "title": "Refund pending",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 10 },
+      "id": 13,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "sum(ntumba_payment_intents{status=\"failed\"})", "refId": "A" }],
+      "title": "Failed intents",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 900 },
+              { "color": "red", "value": 3600 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 10 },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "ntumba_outbox_oldest_pending_age_seconds", "refId": "A" }],
+      "title": "Oldest outbox row",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 900 },
+              { "color": "red", "value": 3600 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 10 },
+      "id": 15,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        { "expr": "ntumba_provider_events_oldest_unprocessed_age_seconds", "refId": "A" }
+      ],
+      "title": "Oldest provider event",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 10 },
+      "id": 16,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "sum(increase(ntumba_purge_failures_total[$__range]))", "refId": "A" }],
+      "title": "Purge failures",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 17,
+      "panels": [],
+      "title": "3. Payment pipeline",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 20, "lineWidth": 2 },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 18,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "ntumba_payment_intents",
+          "legendFormat": "{{direction}} · {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Intents by direction and normalized state",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 15 },
+      "id": 19,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "expr": "sum(ntumba_payment_intents{status=~\"failed|expired|manual_review|refund_pending\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Failure/action states",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 15 },
+      "id": 20,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "expr": "sum(ntumba_payment_intents{status=~\"settled|direct_payment_settled\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Settled states",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 15 },
+      "id": 21,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><p><b>Provider collection:</b> development only</p><p><b>Provider settlement:</b> development only</p></div>",
+        "mode": "html"
+      },
+      "title": "Provider pipeline state",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "orange", "mode": "fixed" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 19 },
+      "id": 22,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        { "expr": "sum(ntumba_payment_intents{status=\"direct_payment_pending\"})", "refId": "A" }
+      ],
+      "title": "Direct Bitcoin pending",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "orange", "mode": "fixed" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 19 },
+      "id": 23,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        { "expr": "sum(ntumba_payment_intents{status=\"direct_payment_settled\"})", "refId": "A" }
+      ],
+      "title": "Direct Bitcoin settled",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 24,
+      "panels": [],
+      "title": "4. Provider and callbacks",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 20, "lineWidth": 2 },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 10, "x": 0, "y": 24 },
+      "id": 25,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "rate(ntumba_provider_callbacks_total[5m])",
+          "legendFormat": "{{outcome}} · {{reason}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Callback acceptance, duplicates and rejection",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "orange", "value": null }, { "color": "green", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 4, "x": 10, "y": 24 },
+      "id": 26,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        { "expr": "ntumba_callback_last_accepted_timestamp_seconds * 1000", "refId": "A" }
+      ],
+      "title": "Last accepted callback",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 3, "x": 14, "y": 24 },
+      "id": 27,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "ntumba_provider_events_unprocessed", "refId": "A" }],
+      "title": "Unprocessed events",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 3, "x": 17, "y": 24 },
+      "id": 28,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "ntumba_outbox_pending", "refId": "A" }],
+      "title": "Pending outbox",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 4, "x": 20, "y": 24 },
+      "id": 29,
+      "options": {
+        "displayMode": "basic",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "targets": [
+        { "expr": "ntumba_outbox_attempts", "legendFormat": "{{bucket}} attempts", "refId": "A" }
+      ],
+      "title": "Outbox attempt buckets",
+      "type": "bargauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "id": 30,
+      "panels": [],
+      "title": "5. Bitcoin rail",
+      "type": "row"
+    },
+    {
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 32 },
+      "id": 31,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h2 style=\"color:#f59e42\">Bitcoin development state</h2><p><b>Lightning node:</b> Not configured</p><p><b>Payment verification:</b> Not configured</p><p>Direct invoices remain merchant-owned and explicitly unverified.</p></div>",
+        "mode": "html"
+      },
+      "title": "Bitcoin rail state",
+      "type": "text"
+    },
+    {
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 32 },
+      "id": 32,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h3>External Lightning channel capacity</h3><p>Unavailable</p><p><b>Inbound capacity:</b> Unavailable</p><p><b>Outbound capacity:</b> Unavailable</p></div>",
+        "mode": "html"
+      },
+      "title": "External capacity placeholders",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "orange", "mode": "fixed" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 32 },
+      "id": 33,
+      "options": {
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "expr": "ntumba_lightning_capability",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{capability}} · {{state}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Read-only Lightning capability state",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 38 },
+      "id": 34,
+      "panels": [],
+      "title": "6. Mobile-money rail",
+      "type": "row"
+    },
+    {
+      "gridPos": { "h": 6, "w": 10, "x": 0, "y": 39 },
+      "id": 35,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h2>Mobile-money development state</h2><p><b>Provider mode:</b> Fake</p><p><b>Live rail:</b> Not configured</p><p><b>Collection:</b> Development only</p><p><b>Settlement:</b> Development only</p></div>",
+        "mode": "html"
+      },
+      "title": "Mobile-money rail state",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "dark-green", "mode": "fixed" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 10, "y": 39 },
+      "id": 36,
+      "options": {
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "expr": "ntumba_mobile_money_capability",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{capability}} · {{state}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Provider capability placeholders",
+      "type": "table"
+    },
+    {
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 39 },
+      "id": 37,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h3>Provider-reported limits</h3><p>Unavailable</p><h3>Last real settlement</h3><p>Never</p><p>No synthetic real-money payment is initiated.</p></div>",
+        "mode": "html"
+      },
+      "title": "Provider status",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+      "id": 38,
+      "panels": [],
+      "title": "7. Privacy and lifecycle",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 7, "x": 0, "y": 46 },
+      "id": 39,
+      "options": {
+        "displayMode": "basic",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "targets": [
+        { "expr": "ntumba_records_retained", "legendFormat": "{{record_type}}", "refId": "A" }
+      ],
+      "title": "Retained operational records",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 7, "x": 7, "y": 46 },
+      "id": 40,
+      "options": {
+        "displayMode": "basic",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "expr": "ntumba_records_eligible_for_purge",
+          "legendFormat": "{{record_type}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Records eligible for purge",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "orange", "value": null }, { "color": "green", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 4, "x": 14, "y": 46 },
+      "id": 41,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "expr": "ntumba_purge_last_success_timestamp_seconds{source=\"job\"} * 1000",
+          "refId": "A"
+        }
+      ],
+      "title": "Last scheduled purge",
+      "type": "stat"
+    },
+    {
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 46 },
+      "id": 42,
+      "options": {
+        "content": "<div style=\"color:#0b3b2a\"><h2>Aggregate only</h2><p>Merchant destinations, payer details, public/local IDs, provider references, idempotency keys, invoices, and raw callbacks are not metrics.</p><p>Raw callback bodies are never stored.</p></div>",
+        "mode": "html"
+      },
+      "title": "Privacy boundary",
+      "type": "text"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["ntumba", "operator", "private", "development-only"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Ntumba Operator",
+  "uid": "ntumba-operator",
+  "version": 1,
+  "weekStart": "monday"
+}

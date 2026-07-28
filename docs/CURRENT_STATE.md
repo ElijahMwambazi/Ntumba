@@ -31,6 +31,10 @@
 - PostgreSQL quote/payment-intent adapter containing only safe operational fields.
 - Normalized provider-event schema with no raw callback body.
 - Expiry/purge timestamps, opportunistic purge and hourly pg-boss purge job.
+- Disabled-by-default separate internal Fastify listener with bearer-protected aggregate health and
+  Prometheus metrics, registered-route HTTP labels and explicit fake/unavailable rail states.
+- Opt-in Compose `ops` profile with version-pinned private Prometheus, conservative alert rules and
+  a provisioned read-only **Ntumba Operator** Grafana dashboard bound to host loopback only.
 - Clean development migration baseline replacing the obsolete recipient/payout schema.
 - GitHub Actions workflow pinned through `.nvmrc` to Node 24.18.0, with immutable Yarn installation,
   the complete repository check and Chromium Playwright coverage.
@@ -56,5 +60,7 @@
 - Capability discovery from live providers. Fake-provider request options are prepared when the
   merchant creates the request and refreshed when the customer selects one.
 - Production retention decision, legal/provider review or deployment.
+- Live read-only Lightning/provider-capacity adapters, real-money alerts, operator write controls
+  or a public status page.
 
 No real funds should be used. The fake provider's checkout URL uses the reserved `.invalid` domain.
