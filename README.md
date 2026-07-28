@@ -15,8 +15,9 @@ Ntumba coordinates intents and status. It does not receive, control, forward or 
 
 ## Implemented
 
-- Mobile-first React 19/Vite merchant PWA with Get paid (`/`), request sharing
-  (`/requests/:localId`), Activity (`/activity`) and Settings (`/settings`).
+- Installable mobile-first React 19/Vite merchant PWA with Get paid (`/`), request sharing
+  (`/requests/:localId`), Activity (`/activity`), Settings (`/settings`) and a privacy-safe offline
+  shell.
 - Anonymous guest checkout at `/pay/:publicId`; the customer—not the merchant—chooses an
   available payment method.
 - Versioned IndexedDB preferences, requests and receipts with a confirmed clear-data action.
@@ -55,6 +56,7 @@ Open the web app at <http://localhost:5173> and API documentation at
 
 ```bash
 yarn check
+yarn test:pwa
 yarn test:e2e
 ```
 

@@ -38,6 +38,10 @@ key; a future autonomous worker requires a reviewed provider-side opaque tokeniz
 IndexedDB contains merchant personal data. It is not cloud-backed or encrypted by Ntumba; device
 security and browser-origin security protect it. The clear-data action removes Ntumba's store.
 
+The service worker must keep its public-shell allowlist explicit. It bypasses `/api` and does not
+cache navigations, checkout projections or payment state. Offline UI must never infer settlement
+from cached data and instead requires a fresh provider confirmation after reconnection.
+
 Checkout fragments are not sent in HTTP requests but are bearer information. Users should avoid
 posting links publicly, and the app must not load third-party analytics/resources that can inspect
 the fragment.

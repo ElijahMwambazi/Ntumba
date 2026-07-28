@@ -15,6 +15,9 @@
   unverified direct-payment copy.
 - Repository architecture tests parse TypeScript structure to reject personal/raw columns and
   custodial provider methods.
+- PWA asset tests validate manifest metadata, icon dimensions, build output and the service-worker
+  cache boundary. A production Playwright run installs that worker, checks its exact cache contents
+  and proves offline navigation uses the reconnect-only shell.
 - Playwright runs a Pixel 7 profile at a 390×844 CSS viewport and desktop Chromium at 1440×900,
   with additional responsive checks at 768×1024 and 1024×768.
 
@@ -26,6 +29,7 @@ yarn typecheck
 yarn test
 yarn build
 yarn check
+yarn test:pwa
 yarn test:e2e
 yarn audit:dependencies
 ```
@@ -37,8 +41,8 @@ requires a known development PostgreSQL database.
 
 GitHub Actions reads Node 24.18.0 from `.nvmrc`, enables the repository-pinned Yarn through
 Corepack, restores only Yarn's project-local package cache and installs with `--immutable`. The CI
-job then runs `yarn check`, installs Chromium and its runner dependencies, and runs the complete
-Playwright suite with `yarn test:e2e`.
+job then runs `yarn check`, installs Chromium and its runner dependencies, verifies the production
+service worker with `yarn test:pwa`, and runs the complete journey suite with `yarn test:e2e`.
 
 The separate security workflow runs the full dependency audit and redacted Gitleaks history scan on
 pushes, pull requests, manual dispatches and weekly. Run `yarn audit:dependencies` locally before
@@ -70,6 +74,9 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
   `quickGuideSeen` preference; later visits start collapsed and clear-data resets the behavior.
 - Quick-guide buttons expose valid `aria-expanded` and `aria-controls` state, and the desktop form
   remains centred in both disclosure states.
+- The install manifest has standard and maskable icons, the built public shell is complete, Cache
+  Storage contains only its explicit public assets, and offline navigation cannot show stale
+  payment state.
 
 ## Browser scenarios and artifacts
 
@@ -82,6 +89,10 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - IndexedDB-unavailable session fallback.
 - First/subsequent quick-guide visits, manual disclosure, clear-data reset and storage failure.
 - Symmetrical desktop task geometry, mobile guide fallback and intermediate-width overflow checks.
+
+`tests/pwa/offline-shell.spec.ts` runs separately against a production Vite build so the
+production-only service-worker registration is exercised without contaminating development-mode
+journey tests.
 
 Running `yarn test:e2e` refreshes the viewport screenshots in `artifacts/ui-review/`:
 

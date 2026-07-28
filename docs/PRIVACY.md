@@ -12,6 +12,11 @@ remove this information and make local history unrecoverable.
 If IndexedDB is unavailable, the app reports that clearly and falls back to session-memory
 behavior.
 
+The production service worker uses Cache Storage only for an explicit set of public manifest,
+icon and generic offline-page assets. It does not cache application routes, public checkout
+responses, API responses or IndexedDB records. Offline navigation cannot display a stale payment
+status; it asks the user to reconnect for fresh provider confirmation.
+
 ## Transient server processing
 
 During intent creation the API can see the merchant mobile number, Lightning address or invoice in

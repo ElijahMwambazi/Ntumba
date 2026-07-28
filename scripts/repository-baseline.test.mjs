@@ -48,6 +48,7 @@ const yarnVersionIndex = ciWorkflow.indexOf("yarn --version");
 const yarnInstallIndex = ciWorkflow.indexOf("yarn install --immutable");
 const playwrightInstallIndex = ciWorkflow.indexOf("yarn playwright install --with-deps chromium");
 const yarnCheckIndex = ciWorkflow.indexOf("yarn check");
+const pwaIndex = ciWorkflow.indexOf("yarn test:pwa");
 const endToEndIndex = ciWorkflow.indexOf("yarn test:e2e");
 assert.ok(setupNodeIndex < corepackIndex, "Corepack must be enabled after the pinned Node setup");
 assert.ok(corepackIndex < yarnVersionIndex, "Corepack must be enabled before invoking Yarn");
@@ -61,9 +62,10 @@ assert.ok(
 );
 assert.ok(yarnCheckIndex < playwrightInstallIndex, "Validation must pass before browser setup");
 assert.ok(
-  playwrightInstallIndex < endToEndIndex,
-  "Playwright must be ready before end-to-end tests",
+  playwrightInstallIndex < pwaIndex,
+  "Playwright must be ready before production PWA tests",
 );
+assert.ok(pwaIndex < endToEndIndex, "Production PWA checks must pass before end-to-end tests");
 
 const securityWorkflow = await readFile(
   new URL("../.github/workflows/security.yml", import.meta.url),

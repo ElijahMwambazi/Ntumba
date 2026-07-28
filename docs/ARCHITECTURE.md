@@ -89,6 +89,12 @@ IndexedDB schema v2 keeps preferences, masked request summaries and receipts on 
 device. Guest checkout fetches `/api/v1/public-requests/:publicId`; raw merchant destinations are
 never put in route parameters, query strings or fragments.
 
+Production builds register a service worker for installability and a reconnect-only offline shell.
+Cache Storage is restricted to an explicit list of public offline-page, manifest and icon assets.
+Navigations remain network-first and fall back to the generic offline page; `/api` requests and
+route responses are not intercepted or cached. IndexedDB remains the only persistent browser store
+for merchant data.
+
 - `/` — merchant Get paid
 - `/requests/:localId` — device-local share/status view
 - `/pay/:publicId` — anonymous guest checkout

@@ -37,7 +37,7 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Add the light-first responsive design system and accessibility baseline.
 - [x] Expand Playwright coverage across creation, sharing, checkout and clear-data flows.
 - [x] Capture and visually review 390×844 and 1440×900 UI screenshots.
-- [ ] Add installable PWA manifest, icons and offline shell.
+- [x] Add installable PWA manifest, icons and offline shell.
 
 ## Phase 3 — Direct Bitcoin rail
 

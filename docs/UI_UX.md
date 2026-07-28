@@ -43,6 +43,8 @@ different opaque identifiers. Raw destinations do not appear in URLs.
 - Loads the optional business name and remembered destinations from Settings.
 - Disables creation until amount, destination and connection are available.
 - Explains offline and session-only storage states in place.
+- Installed production builds use a generic branded offline shell for failed navigation. It asks
+  the user to reconnect and never presents cached request status as payment confirmation.
 - Shows the quick guide expanded on the first visit for the current browser/device and collapsed on
   later visits. The user can expand or collapse it without changing the next-visit default.
 

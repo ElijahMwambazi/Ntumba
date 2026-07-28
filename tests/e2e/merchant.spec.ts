@@ -249,7 +249,11 @@ test.describe("mobile merchant and payer journey", () => {
     await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/ntumba-logo.png");
     await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
       "href",
-      "/ntumba-logo.png",
+      "/icons/apple-touch-icon.png",
+    );
+    await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+      "href",
+      "/manifest.webmanifest",
     );
     const mobileGuide = page.getByRole("button", { name: /How Ntumba works/ });
     await expect(mobileGuide).toHaveAttribute("aria-expanded", "true");

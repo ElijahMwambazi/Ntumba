@@ -47,5 +47,8 @@ jobs:
       - name: Install Playwright Chromium
         run: yarn playwright install --with-deps chromium
 
+      - name: Verify production PWA shell
+        run: yarn test:pwa
+
       - name: Run end-to-end tests
         run: yarn test:e2e

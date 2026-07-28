@@ -13,6 +13,9 @@
   migration, clear-data confirmation and a visible session-memory fallback.
 - Opaque public request URL with no destination or URL-fragment payload.
 - QR, copy-link and Web Share UI with success/error feedback and fallback.
+- Installable production PWA metadata with Ntumba icons and a generic offline shell. Its explicit
+  Cache Storage allowlist contains only public shell assets; API and route responses are never
+  cached.
 - Accessible light-first UI tokens, semantic controls, visible focus, 48px mobile targets,
   reduced-motion support, safe-area bottom navigation and desktop task layout.
 - Symmetrical desktop Get paid layout with a centred 480px payment task and a separate collapsible
