@@ -1,5 +1,5 @@
 import type { NtumbaConfig } from "@ntumba/config";
-import type { CreateQuoteResponse } from "@ntumba/contracts";
+import type { CreateQuoteResponse, PaymentStatus } from "@ntumba/contracts";
 import {
   type NtumbaDatabase,
   paymentIntents,
@@ -10,6 +10,7 @@ import {
 } from "@ntumba/database";
 import { formatZmwFromMinor } from "@ntumba/domain";
 import { type OperationalSnapshot, safeOutboxFailureCategory } from "@ntumba/observability";
+import type { BridgeEventStatus } from "@ntumba/providers";
 import { and, asc, between, count, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type {
   AppendProviderEventResult,
@@ -20,6 +21,31 @@ import type {
   StoredProviderIntentOutbox,
   StoredQuote,
 } from "./payment-store.js";
+
+function normalizedPaymentStatus(status: typeof paymentIntents.$inferSelect.status): PaymentStatus {
+  if (status === "provider_collecting") {
+    return "awaiting_source_payment";
+  }
+  if (status === "provider_settling") {
+    return "destination_settlement_processing";
+  }
+  return status === "failed" ? "manual_review" : status;
+}
+
+function normalizedBridgeEventStatus(
+  status: typeof providerEvents.$inferSelect.normalizedStatus,
+): BridgeEventStatus {
+  if (status === "collecting") {
+    return "source_pending";
+  }
+  if (status === "settling") {
+    return "destination_processing";
+  }
+  if (status === "settled") {
+    return "destination_settled";
+  }
+  return status === "expired" ? "failed" : status;
+}
 
 export class PostgresPaymentStore implements PaymentStore {
   constructor(
@@ -206,7 +232,7 @@ export class PostgresPaymentStore implements PaymentStore {
           destinationToken: completion.destinationToken,
           expiresAt: completion.expiresAt,
           providerReference: completion.providerReference,
-          status: "provider_collecting",
+          status: "awaiting_source_payment",
           updatedAt: completion.updatedAt,
         })
         .where(and(eq(paymentIntents.id, paymentIntentId), eq(paymentIntents.status, "created")))
@@ -450,7 +476,10 @@ export class PostgresPaymentStore implements PaymentStore {
     ]);
 
     return {
-      intents: intentCounts,
+      intents: intentCounts.map((item) => ({
+        ...item,
+        status: normalizedPaymentStatus(item.status),
+      })),
       lastAcceptedCallbackAt: lastAcceptedCallback[0]?.receivedAt ?? null,
       oldestPendingOutboxAt: oldestPendingOutbox[0]?.lastAttemptAt ?? null,
       oldestUnprocessedEventAt: oldestPendingEvent[0]?.receivedAt ?? null,
@@ -475,6 +504,23 @@ export class PostgresPaymentStore implements PaymentStore {
         outbox: retainedOutbox,
         quotes: retainedQuotes,
       },
+      treasury: {
+        bitcoinBalanceSats: 0n,
+        inboundCapacitySats: 0n,
+        lastSuccessfulReconciliationAt: null,
+        lightningAvailable: false,
+        manualReview: 0,
+        mobileMoneyAvailable: false,
+        mobileMoneyBalanceZmwMinor: 0n,
+        outboundCapacitySats: 0n,
+        refundRequired: 0,
+        reservedBtcSats: 0n,
+        reservedZmwMinor: 0n,
+        unsettledBtcLiabilitySats: 0n,
+        unsettledZmwLiabilityMinor: 0n,
+        waitingDestinationSettlement: 0,
+        waitingSourcePayment: 0,
+      },
       unprocessedProviderEvents: pendingEventCount[0]?.value ?? 0,
     };
   }
@@ -494,7 +540,7 @@ export class PostgresPaymentStore implements PaymentStore {
   private mapProviderEvent(row: typeof providerEvents.$inferSelect): StoredProviderEvent {
     return {
       id: row.id,
-      normalizedStatus: row.normalizedStatus,
+      normalizedStatus: normalizedBridgeEventStatus(row.normalizedStatus),
       occurredAt: row.occurredAt,
       payloadHash: row.payloadHash,
       paymentIntentId: row.paymentIntentId,
@@ -560,7 +606,7 @@ export class PostgresPaymentStore implements PaymentStore {
       providerReference: row.providerReference,
       purgeAt: row.purgeAt,
       quoteId: row.quoteId,
-      status: row.status,
+      status: normalizedPaymentStatus(row.status),
       updatedAt: row.updatedAt,
     };
   }

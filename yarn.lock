@@ -935,6 +935,7 @@ __metadata:
   dependencies:
     "@types/node": "npm:24.10.13"
     typescript: "npm:7.0.2"
+    vitest: "npm:4.1.10"
     zod: "npm:4.4.3"
   languageName: unknown
   linkType: soft
@@ -1008,6 +1009,7 @@ __metadata:
     "@ntumba/domain": "workspace:*"
     "@ntumba/observability": "workspace:*"
     "@ntumba/providers": "workspace:*"
+    "@ntumba/treasury": "workspace:*"
     "@types/node": "npm:24.10.13"
     dotenv: "npm:17.4.2"
     drizzle-orm: "npm:0.45.2"
@@ -1020,6 +1022,18 @@ __metadata:
     typescript: "npm:7.0.2"
     vitest: "npm:4.1.10"
     zod: "npm:4.4.3"
+  languageName: unknown
+  linkType: soft
+
+"@ntumba/treasury@workspace:*, @ntumba/treasury@workspace:packages/treasury":
+  version: 0.0.0-use.local
+  resolution: "@ntumba/treasury@workspace:packages/treasury"
+  dependencies:
+    "@ntumba/contracts": "workspace:*"
+    "@ntumba/domain": "workspace:*"
+    "@types/node": "npm:24.10.13"
+    typescript: "npm:7.0.2"
+    vitest: "npm:4.1.10"
   languageName: unknown
   linkType: soft
 

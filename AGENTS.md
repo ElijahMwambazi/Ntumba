@@ -5,15 +5,25 @@ Payment safety, privacy, recoverability and operator clarity are product feature
 
 ## Non-negotiable architecture
 
-- Ntumba never receives, controls, forwards or reuses payment funds.
+- Ntumba is an accountless payment bridge with direct settlement and no merchant balances.
 - No merchant or payer accounts, authentication, profiles, balances, deposits or internal wallets.
-- Bridge payments are collected and settled directly by an external settlement provider.
-- Direct Bitcoin uses a merchant-owned Lightning invoice.
+- Direct BTC → BTC uses a merchant-owned Lightning invoice. Ntumba never receives or forwards
+  funds on that rail; only this rail is non-custodial.
+- Conversion bridges use operator-controlled source and destination liquidity. BTC → ZMW collects
+  to the operator Lightning treasury before mobile-money disbursement; ZMW → BTC collects to the
+  operator mobile-money treasury before an outgoing Lightning payment.
+- Source collection and destination settlement are separate legs. Reserve destination liquidity
+  before accepting source payment and never start destination settlement until source settlement
+  is conclusive.
+- Unknown outcomes enter manual review and are never blindly retried. Confirmed retries reuse the
+  original leg idempotency key; collection and settlement keys must be distinct.
 - Merchant destinations, preferences, requests and receipts remain in versioned IndexedDB.
-- The server may process a destination transiently to create a provider intent, but must not persist
-  or log it.
+- The server may recover a destination transiently through the `SettlementDestinationVault`, but
+  must not persist or log it. The current vault is development-only, in-memory and expiring.
 - Persist only opaque references, integer amounts, normalized states, idempotency keys and
   expiry/purge timestamps.
+- Treasury journals are append-only, debit/credit balanced independently per asset and link the
+  BTC and ZMW sides of an exchange without treating them as one balanced transaction.
 - Store ZMW as integer ngwee and Bitcoin as integer satoshis or millisatoshis. Never use
   floating-point money arithmetic.
 - Never store raw provider callback bodies. Verify and normalize them in memory.
@@ -29,8 +39,10 @@ Payment safety, privacy, recoverability and operator clarity are product feature
   key and a transient client-supplied destination unless a reviewed provider supplies an opaque
   destination token that is safe to persist.
 - Do not expose destinations, invoices, provider credentials or callback bodies in logs or errors.
-- Only fake providers are active. Live provider actions require explicit authorization, reviewed
-  contracts and test credentials.
+- The bridge engine defaults to disabled. Only deterministic fake treasury adapters are available.
+  Live rail work requires an explicit roadmap milestone, reviewed contracts and test credentials.
+- Never introduce selectable `voltage`, `lipila`, `sandbox`, `mainnet` or `live` modes while the
+  fake-only gate is in force.
 - Keep operator health/metrics on the disabled-by-default internal listener. Never add operator
   routes or credentials to the merchant PWA or public API listener.
 - Metrics use aggregate counts, bounded labels and registered route templates only. Never label or

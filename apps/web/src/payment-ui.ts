@@ -36,6 +36,36 @@ export const plainStatus: Record<
     label: "Request created",
     tone: "neutral",
   },
+  quote_locked: {
+    detail: "The conversion rate and destination liquidity are reserved briefly.",
+    label: "Quote locked",
+    tone: "neutral",
+  },
+  awaiting_source_payment: {
+    detail: "Complete the source payment to the Ntumba-operated fake bridge.",
+    label: "Waiting for payment",
+    tone: "neutral",
+  },
+  source_payment_confirming: {
+    detail: "The fake bridge is waiting for conclusive source-payment confirmation.",
+    label: "Confirming payment",
+    tone: "neutral",
+  },
+  source_payment_settled: {
+    detail: "Source funds are confirmed; destination settlement has not completed yet.",
+    label: "Source received",
+    tone: "warning",
+  },
+  destination_settlement_queued: {
+    detail: "The fake bridge has queued the merchant settlement leg.",
+    label: "Merchant payout queued",
+    tone: "neutral",
+  },
+  destination_settlement_processing: {
+    detail: "The fake bridge is processing the merchant settlement leg.",
+    label: "Paying merchant",
+    tone: "neutral",
+  },
   direct_payment_pending: {
     detail: "Ntumba cannot confirm this direct wallet payment yet.",
     label: "Waiting for payment",
@@ -51,38 +81,48 @@ export const plainStatus: Record<
     label: "Request expired",
     tone: "warning",
   },
-  failed: {
-    detail: "The payment could not be completed.",
-    label: "Payment failed",
+  source_payment_failed: {
+    detail: "The source payment conclusively failed and reserved liquidity was released.",
+    label: "Source payment failed",
     tone: "danger",
+  },
+  destination_settlement_failed: {
+    detail: "The source settled, but the merchant payout conclusively failed.",
+    label: "Merchant payout failed",
+    tone: "danger",
+  },
+  liquidity_unavailable: {
+    detail: "The fake bridge could not reserve enough destination liquidity.",
+    label: "Liquidity unavailable",
+    tone: "danger",
+  },
+  rate_expired: {
+    detail: "The locked conversion rate expired before the payment could proceed.",
+    label: "Rate expired",
+    tone: "warning",
   },
   manual_review: {
     detail: "Do not pay again until the payment can be checked.",
     label: "Could not confirm payment",
     tone: "warning",
   },
-  provider_collecting: {
-    detail: "Complete payment with the external provider.",
-    label: "Waiting for payment",
-    tone: "neutral",
-  },
-  provider_settling: {
-    detail: "The provider is sending funds directly to the merchant.",
-    label: "Paying merchant",
-    tone: "neutral",
+  refund_required: {
+    detail: "Source funds settled but the destination cannot be paid; a refund is required.",
+    label: "Refund required",
+    tone: "danger",
   },
   refund_pending: {
-    detail: "The provider is processing the refund.",
+    detail: "The fake bridge is processing the refund obligation.",
     label: "Refund pending",
     tone: "warning",
   },
   refunded: {
-    detail: "The provider reports the payment was refunded.",
+    detail: "The fake bridge records the payment as refunded.",
     label: "Refunded",
     tone: "neutral",
   },
   settled: {
-    detail: "The provider reports that the merchant was paid.",
+    detail: "Both bridge legs are conclusively settled.",
     label: "Merchant paid",
     tone: "success",
   },

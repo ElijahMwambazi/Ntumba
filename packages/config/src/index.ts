@@ -9,7 +9,13 @@ const booleanString = z
 const configSchema = z
   .object({
     APP_BASE_URL: z.url().default("http://localhost:5173"),
+    BITCOIN_LIQUIDITY_RAIL_MODE: z.literal("fake").default("fake"),
+    BRIDGE_ENGINE_MODE: z.enum(["disabled", "fake"]).default("disabled"),
     DATABASE_URL: z.string().min(1).default("postgresql://ntumba:ntumba@localhost:5432/ntumba"),
+    FAKE_BITCOIN_TREASURY_BALANCE_SATS: z.coerce.bigint().min(0n).default(5_000_000n),
+    FAKE_BITCOIN_TREASURY_INBOUND_CAPACITY_SATS: z.coerce.bigint().min(0n).default(10_000_000n),
+    FAKE_BITCOIN_TREASURY_OUTBOUND_CAPACITY_SATS: z.coerce.bigint().min(0n).default(5_000_000n),
+    FAKE_LIPILA_BALANCE_ZMW_MINOR: z.coerce.bigint().min(0n).default(5_000_000n),
     FAKE_PROVIDER_CALLBACK_SECRET: z.string().min(32).optional(),
     FLAT_FEE_ZMW: z.string().default("5.00"),
     HOST: z.string().default("0.0.0.0"),
@@ -18,6 +24,7 @@ const configSchema = z
     LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
       .default("info"),
+    MOBILE_MONEY_LIQUIDITY_RAIL_MODE: z.literal("fake").default("fake"),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     NTUMBA_BUILD_COMMIT: z
       .string()
@@ -31,9 +38,9 @@ const configSchema = z
     PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
     QUOTE_RETENTION_SECONDS: z.coerce.number().int().min(0).max(86_400).default(3_600),
     QUOTE_TTL_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
-    RATE_PROVIDER_MODE: z.enum(["fake", "live"]).default("fake"),
+    RATE_PROVIDER_MODE: z.literal("fake").default("fake"),
     SERVE_WEB: booleanString,
-    SETTLEMENT_PROVIDER_MODE: z.literal("fake").default("fake"),
+    SETTLEMENT_DESTINATION_TTL_SECONDS: z.coerce.number().int().min(10).max(600).default(300),
     STATIC_BTC_ZMW_RATE: z.string().default("1800000.00"),
     VARIABLE_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(0),
   })
@@ -53,11 +60,23 @@ const configSchema = z
         path: ["OPS_PORT"],
       });
     }
+    if (config.NODE_ENV === "production" && config.BRIDGE_ENGINE_MODE !== "disabled") {
+      context.addIssue({
+        code: "custom",
+        message: "The fake bridge engine cannot be enabled in production.",
+        path: ["BRIDGE_ENGINE_MODE"],
+      });
+    }
   });
 
 export type NtumbaConfig = z.infer<typeof configSchema>;
 
 export function loadConfig(environment: NodeJS.ProcessEnv = process.env): NtumbaConfig {
+  if (environment.SETTLEMENT_PROVIDER_MODE !== undefined) {
+    throw new Error(
+      "Invalid environment configuration: SETTLEMENT_PROVIDER_MODE is obsolete; use the explicit bridge and liquidity-rail gates.",
+    );
+  }
   const resolvedEnvironment = { ...environment };
   if (!resolvedEnvironment.OPS_METRICS_TOKEN && resolvedEnvironment.OPS_METRICS_TOKEN_FILE) {
     try {

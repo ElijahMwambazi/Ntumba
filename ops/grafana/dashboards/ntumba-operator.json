@@ -138,10 +138,10 @@
       "gridPos": { "h": 5, "w": 3, "x": 15, "y": 1 },
       "id": 6,
       "options": {
-        "content": "<div style=\"color:#0b3b2a\"><h3>Provider</h3><p><b>Fake only</b></p><p>Collection and settlement are development simulations.</p></div>",
+        "content": "<div style=\"color:#0b3b2a\"><h3>Bridge engine</h3><p><b>Disabled by default</b></p><p>Fake mode simulates operator-controlled source and destination liquidity.</p></div>",
         "mode": "html"
       },
-      "title": "Provider mode",
+      "title": "Bridge mode",
       "type": "text"
     },
     {
@@ -223,7 +223,10 @@
         "wideLayout": true
       },
       "targets": [
-        { "expr": "sum(ntumba_payment_intents{status=\"manual_review\"})", "refId": "A" }
+        {
+          "expr": "ntumba_treasury_pipeline_transactions{stage=\"manual_review\"}",
+          "refId": "A"
+        }
       ],
       "title": "Manual review",
       "type": "stat"
@@ -252,9 +255,12 @@
         "wideLayout": true
       },
       "targets": [
-        { "expr": "sum(ntumba_payment_intents{status=\"refund_pending\"})", "refId": "A" }
+        {
+          "expr": "ntumba_treasury_pipeline_transactions{stage=\"refund_required\"}",
+          "refId": "A"
+        }
       ],
-      "title": "Refund pending",
+      "title": "Refund required",
       "type": "stat"
     },
     {
@@ -280,8 +286,13 @@
         "textMode": "auto",
         "wideLayout": true
       },
-      "targets": [{ "expr": "sum(ntumba_payment_intents{status=\"failed\"})", "refId": "A" }],
-      "title": "Failed intents",
+      "targets": [
+        {
+          "expr": "sum(ntumba_payment_intents{status=~\"source_payment_failed|destination_settlement_failed|liquidity_unavailable|rate_expired\"})",
+          "refId": "A"
+        }
+      ],
+      "title": "Failed or unavailable",
       "type": "stat"
     },
     {
@@ -412,6 +423,11 @@
           "expr": "ntumba_payment_intents",
           "legendFormat": "{{direction}} · {{status}}",
           "refId": "A"
+        },
+        {
+          "expr": "ntumba_treasury_pipeline_transactions",
+          "legendFormat": "treasury · {{stage}}",
+          "refId": "B"
         }
       ],
       "title": "Intents by direction and normalized state",
@@ -442,7 +458,7 @@
       },
       "targets": [
         {
-          "expr": "sum(ntumba_payment_intents{status=~\"failed|expired|manual_review|refund_pending\"})",
+          "expr": "sum(ntumba_payment_intents{status=~\"source_payment_failed|destination_settlement_failed|liquidity_unavailable|rate_expired|expired|manual_review|refund_required|refund_pending\"})",
           "refId": "A"
         }
       ],
@@ -482,10 +498,10 @@
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 15 },
       "id": 21,
       "options": {
-        "content": "<div style=\"color:#0b3b2a\"><p><b>Provider collection:</b> development only</p><p><b>Provider settlement:</b> development only</p></div>",
+        "content": "<div style=\"color:#0b3b2a\"><p><b>Source collection:</b> must settle conclusively first</p><p><b>Destination settlement:</b> uses pre-reserved fake liquidity</p><p>Unknown outcomes require manual review.</p></div>",
         "mode": "html"
       },
-      "title": "Provider pipeline state",
+      "title": "Two-leg pipeline",
       "type": "text"
     },
     {
@@ -709,7 +725,7 @@
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 32 },
       "id": 31,
       "options": {
-        "content": "<div style=\"color:#0b3b2a\"><h2 style=\"color:#f59e42\">Bitcoin development state</h2><p><b>Lightning node:</b> Not configured</p><p><b>Payment verification:</b> Not configured</p><p>Direct invoices remain merchant-owned and explicitly unverified.</p></div>",
+        "content": "<div style=\"color:#0b3b2a\"><h2 style=\"color:#f59e42\">Bitcoin development state</h2><p><b>Operator node:</b> Deterministic fake only</p><p><b>Direct-payment verification:</b> Not configured</p><p>Direct BTC invoices remain merchant-owned. Conversion uses fake operator liquidity.</p></div>",
         "mode": "html"
       },
       "title": "Bitcoin rail state",
@@ -719,10 +735,10 @@
       "gridPos": { "h": 6, "w": 8, "x": 8, "y": 32 },
       "id": 32,
       "options": {
-        "content": "<div style=\"color:#0b3b2a\"><h3>External Lightning channel capacity</h3><p>Unavailable</p><p><b>Inbound capacity:</b> Unavailable</p><p><b>Outbound capacity:</b> Unavailable</p></div>",
+        "content": "<div style=\"color:#0b3b2a\"><h3>Fake treasury snapshot</h3><p>The adjacent table shows fake node availability, balance, capacity, reserved BTC and unsettled BTC liabilities.</p><p>These values are simulations, not evidence of real liquidity.</p></div>",
         "mode": "html"
       },
-      "title": "External capacity placeholders",
+      "title": "Fake Bitcoin treasury",
       "type": "text"
     },
     {
@@ -742,14 +758,14 @@
       },
       "targets": [
         {
-          "expr": "ntumba_lightning_capability",
+          "expr": "{__name__=~\"ntumba_fake_lightning_node_available|ntumba_fake_bitcoin_treasury_balance_sats|ntumba_fake_lightning_inbound_capacity_sats|ntumba_fake_lightning_outbound_capacity_sats\"} or ntumba_treasury_reserved{asset=\"BTC\"} or ntumba_treasury_unsettled_liability{asset=\"BTC\"}",
           "format": "table",
           "instant": true,
-          "legendFormat": "{{capability}} · {{state}}",
+          "legendFormat": "{{__name__}}",
           "refId": "A"
         }
       ],
-      "title": "Read-only Lightning capability state",
+      "title": "Read-only fake Bitcoin snapshot",
       "type": "table"
     },
     {
@@ -764,7 +780,7 @@
       "gridPos": { "h": 6, "w": 10, "x": 0, "y": 39 },
       "id": 35,
       "options": {
-        "content": "<div style=\"color:#0b3b2a\"><h2>Mobile-money development state</h2><p><b>Provider mode:</b> Fake</p><p><b>Live rail:</b> Not configured</p><p><b>Collection:</b> Development only</p><p><b>Settlement:</b> Development only</p></div>",
+        "content": "<div style=\"color:#0b3b2a\"><h2>Mobile-money development state</h2><p><b>Lipila adapter:</b> Deterministic fake only</p><p><b>Live rail:</b> Not configured</p><p><b>Collection/disbursement:</b> Development simulation</p></div>",
         "mode": "html"
       },
       "title": "Mobile-money rail state",
@@ -787,24 +803,24 @@
       },
       "targets": [
         {
-          "expr": "ntumba_mobile_money_capability",
+          "expr": "{__name__=~\"ntumba_fake_lipila_available|ntumba_fake_lipila_treasury_balance_zmw_minor\"} or ntumba_treasury_reserved{asset=\"ZMW\"} or ntumba_treasury_unsettled_liability{asset=\"ZMW\"}",
           "format": "table",
           "instant": true,
-          "legendFormat": "{{capability}} · {{state}}",
+          "legendFormat": "{{__name__}}",
           "refId": "A"
         }
       ],
-      "title": "Provider capability placeholders",
+      "title": "Read-only fake ZMW snapshot",
       "type": "table"
     },
     {
       "gridPos": { "h": 6, "w": 6, "x": 18, "y": 39 },
       "id": 37,
       "options": {
-        "content": "<div style=\"color:#0b3b2a\"><h3>Provider-reported limits</h3><p>Unavailable</p><h3>Last real settlement</h3><p>Never</p><p>No synthetic real-money payment is initiated.</p></div>",
+        "content": "<div style=\"color:#0b3b2a\"><h3>Safety boundary</h3><p>No real Lipila endpoint or credential exists.</p><p>No dashboard action can collect, disburse, refund, unlock a wallet or pause a service.</p></div>",
         "mode": "html"
       },
-      "title": "Provider status",
+      "title": "Fake-only controls",
       "type": "text"
     },
     {
@@ -906,10 +922,16 @@
       "targets": [
         {
           "expr": "ntumba_purge_last_success_timestamp_seconds{source=\"job\"} * 1000",
+          "legendFormat": "Scheduled purge",
           "refId": "A"
+        },
+        {
+          "expr": "ntumba_reconciliation_last_success_timestamp_seconds * 1000",
+          "legendFormat": "Fake reconciliation",
+          "refId": "B"
         }
       ],
-      "title": "Last scheduled purge",
+      "title": "Last successful maintenance",
       "type": "stat"
     },
     {

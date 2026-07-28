@@ -1,45 +1,18 @@
-export type ProviderPaymentStatus =
-  | "collecting"
-  | "settling"
-  | "settled"
-  | "expired"
+export type BridgeDirection = "btc_to_zmw" | "zmw_to_btc";
+export type ProviderAsset = "BTC" | "ZMW";
+export type BridgeEventStatus =
+  | "source_pending"
+  | "source_confirming"
+  | "source_settled"
+  | "destination_queued"
+  | "destination_processing"
+  | "destination_settled"
   | "failed"
   | "refund_pending"
   | "refunded"
   | "unknown";
 
-export type BridgeDirection = "btc_to_zmw" | "zmw_to_btc";
-export type ProviderAsset = "BTC" | "ZMW";
-
-export type ProviderDestination =
-  | {
-      network: "airtel" | "mtn" | "zamtel";
-      phone: string;
-      type: "mobile_money";
-    }
-  | { address: string; type: "lightning_address" }
-  | { invoice: string; type: "lightning_invoice" };
-
-export interface ProviderQuote {
-  expiresAt: Date;
-  feeZmwMinor: bigint;
-  merchantReceivesSats: bigint | null;
-  merchantReceivesZmwMinor: bigint | null;
-  payerSendsSats: bigint | null;
-  payerSendsZmwMinor: bigint | null;
-  providerQuoteReference: string;
-}
-
-export interface ProviderPaymentIntent {
-  checkoutUrl: string;
-  destinationToken: string | null;
-  expiresAt: Date;
-  payerInstructions: string;
-  providerReference: string;
-  status: ProviderPaymentStatus;
-}
-
-export interface VerifiedProviderCallback {
+export interface VerifiedBridgeCallback {
   direction: BridgeDirection;
   eventId: string;
   occurredAt: Date;
@@ -49,26 +22,14 @@ export interface VerifiedProviderCallback {
   settlementAsset: ProviderAsset;
   sourceAmount: bigint;
   sourceAsset: ProviderAsset;
-  status: ProviderPaymentStatus;
+  status: BridgeEventStatus;
 }
 
-export interface SettlementProvider {
-  createPaymentIntent(input: {
-    destination: ProviderDestination;
-    direction: BridgeDirection;
-    idempotencyKey: string;
-    providerQuoteReference: string;
-  }): Promise<ProviderPaymentIntent>;
-  getPaymentStatus(providerReference: string): Promise<ProviderPaymentStatus>;
-  requestQuote(input: {
-    amountZmwMinor: bigint;
-    direction: BridgeDirection;
-    idempotencyKey: string;
-  }): Promise<ProviderQuote>;
+export interface BridgeEventVerifier {
   verifyCallback(input: {
     headers: Readonly<Record<string, string | string[] | undefined>>;
     rawBody: Uint8Array;
-  }): Promise<VerifiedProviderCallback>;
+  }): Promise<VerifiedBridgeCallback>;
 }
 
 export interface MerchantLightningInvoice {

@@ -13,11 +13,15 @@ Anonymous payer <── /pay/:publicId link ──── Merchant device
         │                                      │
         ├── merchant-owned Lightning invoice ─> Merchant wallet
         │
-        └── provider checkout ────────────────> Settlement provider
-                                                  │
-                                                  └── Merchant destination
+        └── fake source collection ───────────> Settlement coordinator
+                                                  │ conclusive source settlement
+                                                  ├── inventory reservation
+                                                  ├── asset-specific journal
+                                                  └── fake destination rail ──> Merchant
 
-Fastify API ── opaque operational state only ──> PostgreSQL + pg-boss purge job
+Fake BTC treasury <──> coordinator <──> Fake Lipila treasury
+
+Fastify API ── opaque operational and treasury state ──> PostgreSQL + pg-boss purge job
 
 Private Prometheus ── bearer token ──> Internal Fastify listener ── aggregate reads only
        │                                      (disabled by default; separate port)
@@ -29,48 +33,71 @@ Private Prometheus ── bearer token ──> Internal Fastify listener ── 
 - `contracts`: destination-free quote schemas, transient intent input, safe output schemas and
   opaque public-request capability schemas.
 - `domain`: integer monetary calculation, state transitions and retention windows.
-- `database`: minimal operational schema and purge transaction.
-- `providers`: provider-direct settlement contract and direct merchant Lightning contract.
+- `database`: operational schema, two-leg treasury foundation, asset-specific journal and purge
+  transaction.
+- `providers`: verified normalized callback/event boundary and direct merchant Lightning contract.
+- `treasury`: Bitcoin and mobile-money rails, integer rate source, liquidity inventory, settlement
+  coordinator, expiring destination vault, immutable journal and reconciliation boundaries.
 - `observability`: bounded metric names/labels, aggregate snapshots and future read-only status
   interfaces with no fund-moving methods.
 - `server`: API routes, persistence adapter, development-only public request store and scheduled
   jobs, plus a separately bound private health/metrics listener.
 - `web`: merchant creation, sharing, guest checkout and local IndexedDB history.
 
-## Provider-direct bridge
+## Operator-liquidity conversion bridge
 
-`SettlementProvider` can quote, create a provider-owned intent, return opaque references and payer
-instructions, read normalized status and verify callbacks. Destination data exists only as an
-argument to intent creation. The provider collects and settles; Ntumba does neither.
+Conversion no longer assumes one provider owns both legs. `BitcoinLiquidityRail` represents
+operator Lightning invoice creation/read, outgoing invoice payment and BTC balance/capacity.
+`MobileMoneyLiquidityRail` represents mobile-money collection/disbursement and ZMW
+balance/availability. `LiquidityInventoryService` reserves destination assets before collection.
+`BridgeEngine` sequences both legs, `SettlementDestinationVault` recovers a destination only for a
+short time, `TreasuryJournal` records linked balanced transactions per asset, and
+`ReconciliationService` compares privacy-safe external state.
 
-The fake provider callback enters through `POST /api/v1/provider-callbacks/fake`. Its HMAC covers
+The milestone implementations are deterministic fakes with no network-call path. The bridge gate
+defaults to `disabled`; development may explicitly choose `fake`, and production rejects fake
+execution. No Voltage, Lipila, sandbox, mainnet or live mode exists.
+
+BTC → ZMW creates an invoice owned by the simulated operator Lightning treasury. Only after source
+settlement is conclusive may the coordinator disburse from simulated operator ZMW inventory.
+ZMW → BTC collects into simulated operator mobile-money inventory first, then pays the merchant
+invoice from simulated operator BTC inventory. These conversion paths are custodial during
+settlement even though merchants have no Ntumba balance.
+
+The fake treasury callback enters through `POST /api/v1/provider-callbacks/fake`. Its HMAC covers
 the timestamp and exact raw bytes. Verification and normalization happen before the event is
-matched against the retained provider reference, direction, assets and integer amounts.
+matched against the retained opaque reference, direction, assets and integer amounts.
 
-Provider intent creation uses two database transactions around the external side effect. The first
-atomically stores a `created` intent and a payload-free `provider_intent_outbox` row. The request
-then sends the merchant destination transiently to the provider with the durable idempotency key.
-The second transaction stores only the opaque provider reference/token, moves the intent to
-`provider_collecting` and marks the outbox row processed.
+Intent creation retains the existing transactional outbox safety. It atomically stores a
+`created` intent and payload-free outbox row, then reserves destination liquidity, places the
+destination in the development-only vault and creates source collection using a distinct
+collection idempotency key. Completion stores only opaque references/tokens and moves the intent
+to `awaiting_source_payment`.
 
-If the provider call or process fails, the pending row remains with a safe failure code. Repeating
-the same API request supplies the destination transiently again and reuses the same provider
-idempotency key. This closes the crash window without persisting personal data. Autonomous worker
-dispatch is deliberately deferred until a reviewed provider can supply an opaque destination token
-before intent creation.
+If source setup fails, the outbox remains with a safe code. Repeating the same request supplies
+the destination transiently and reuses the original key. Durable bridge-leg tables now exist but
+are not yet wired to the in-memory coordinator; transactional saga persistence is a later
+milestone.
 
 ## Direct Lightning
 
 `DirectLightningProvider` prepares an invoice owned by the merchant wallet. A supplied invoice is
-passed through exactly. Ntumba has no invoice-creation wallet and no outgoing payment method.
+passed through exactly. The direct rail has no operator invoice-creation or outgoing-payment
+method.
 Until merchant-wallet evidence or an independent proof exists, direct payments remain explicitly
-unverified.
+unverified. This is the only non-custodial direction.
 
 ## Server state
 
-PostgreSQL stores integer amounts, assets, direction, normalized status, idempotency key, opaque
-provider references/tokens, safe failure code, event ID/hash and lifecycle timestamps. It has no
-merchant profile, destination, invoice or raw callback column.
+PostgreSQL stores integer amounts, assets, direction, normalized status, separate collection and
+settlement idempotency keys, opaque references/tokens, safe failure code, event ID/hash and
+lifecycle timestamps. It has no merchant profile, destination, invoice or raw callback column.
+
+The forward-only treasury migration adds bridge settlements and source/destination legs, liquidity
+reservations, settlement obligations/attempts, reconciliation results and refund obligations.
+Journal transactions are grouped by exchange but balanced independently for BTC and ZMW with
+positive integer debit/credit entries. Deferred triggers reject unbalanced commits, and
+UPDATE/DELETE triggers make journal history append-only.
 
 The provider-intent outbox contains only its intent reference, provider name, attempt count, safe
 failure code and lifecycle timestamps. It has no serialized payload or destination field.

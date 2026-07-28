@@ -13,15 +13,15 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
   - [x] Confirm the first successful GitHub Actions run after the workflow is pushed.
 - [x] Add automated dependency and secret scanning.
 
-## Phase 1 — Accountless non-custodial core
+## Phase 1 — Accountless payment core
 
 - [x] Make quote creation destination-free and integer-only.
 - [x] Model provider collection, provider settlement and direct merchant settlement separately.
 - [x] Define minimal PostgreSQL quote, intent and normalized event tables.
-- [x] Replace development migrations with a clean non-custodial baseline.
+- [x] Replace development migrations with a clean privacy-minimizing baseline.
 - [x] Persist safe quote/payment-intent state with idempotency.
 - [x] Add configurable expiry and automatic purge behavior.
-- [x] Add provider-direct and merchant-owned Lightning boundaries with safe fakes.
+- [x] Add the original provider-direct and merchant-owned Lightning boundaries with safe fakes.
 - [x] Add a signed callback route and append-only normalized provider-event ingestion.
 - [x] Add a transactional outbox for retry-safe provider intent creation.
 
@@ -48,42 +48,58 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
       through the opt-in Compose `ops` profile.
 - [x] Provision the read-only **Ntumba Operator** dashboard and first-response runbooks.
 
-## Phase 3 — Direct Bitcoin rail
+## Phase 3 — Operator-liquidity architecture and fake treasury foundation
 
-- [ ] Resolve Lightning addresses safely into merchant-owned invoices.
-- [ ] Validate invoice amount, network and expiry before sharing.
-- [ ] Add merchant-wallet settlement verification or independent payment proof.
-- [ ] Issue independently verifiable direct-payment receipts.
-- [ ] Decide between free direct payments, merchant subscription or separate service billing.
+- [x] Record the hybrid custody decision and retain non-custodial BTC → BTC settlement.
+- [x] Split Bitcoin liquidity, mobile-money liquidity, rates, inventory, coordination, destination
+      recovery, journal and reconciliation into explicit boundaries.
+- [x] Add disabled-by-default deterministic fake Voltage/LND and fake Lipila treasury adapters.
+- [x] Enforce source-before-destination, liquidity reservation, leg-specific idempotency,
+      unknown-outcome review, safe retry and refund-required invariants in domain tests.
+- [x] Add the forward-only two-leg, liquidity, obligation, attempt, immutable-journal,
+      reconciliation and refund schema foundation.
+- [x] Extend private aggregate metrics and the read-only dashboard with fake treasury state.
+- [x] Preserve merchant-owned direct Bitcoin invoices without an operator treasury hop.
 
-## Phase 4 — Provider-direct BTC → ZMW pilot
+## Phase 4 — Controlled rail integrations
 
-- [ ] Add a live, freshness-checked BTC/ZMW rate adapter.
-- [ ] Select a provider contractually capable of collecting Lightning and settling merchant mobile
-      money directly.
-- [ ] Implement provider quote and intent creation with opaque destination tokens where available.
-- [ ] Implement callback verification, status polling, reconciliation and provider-led refunds.
-- [ ] Pilot with capped fake-money transactions.
-- [ ] Complete security, privacy, legal, regulatory and provider-contract review before real funds.
+- [ ] Add a disabled-by-default Voltage MutinyNet adapter using least-privilege LND credentials
+      limited to invoice creation/read and invoice payment; prohibit admin and wallet-unlock
+      credentials.
+- [ ] Resolve Lightning addresses safely into merchant-owned direct-payment invoices and validate
+      invoice amount, network and expiry.
+- [ ] Add merchant-wallet settlement verification or independent proof for direct Bitcoin and
+      issue independently verifiable receipts.
+- [ ] Add a disabled-by-default Lipila sandbox adapter for mobile-money collection, disbursement
+      and read-only balance/availability.
+- [ ] Add a live, freshness-checked integer BTC/ZMW rate adapter behind a fail-closed gate.
 
-## Phase 5 — Provider-direct ZMW → BTC pilot
+## Phase 5 — Cross-rail settlement saga and refunds
 
-- [ ] Confirm the provider collects payer mobile money and settles the merchant wallet directly.
-- [ ] Implement provider-owned checkout and normalized state handling.
-- [ ] Test failed settlement, unknown outcomes and provider-led refund paths.
-- [ ] Add direction-aware provider limits without Ntumba-controlled liquidity.
+- [ ] Persist and transactionally advance both bridge legs, reservations and obligations.
+- [ ] Process verified normalized events without duplicate source credit or destination payment.
+- [ ] Implement expiry, confirmed-failure release, unknown-outcome reconciliation and destination
+      recovery failure handling.
+- [ ] Implement operator-owned refund obligations and reviewed, idempotent refund execution.
+- [ ] Replace the development vault with provider-issued opaque beneficiary tokens or a reviewed,
+      short-lived envelope-encrypted store with automatic deletion.
 
-## Phase 6 — Solo-operator hardening
+## Phase 6 — Automated reconciliation and treasury dashboard
 
-- [ ] Add live read-only Lightning operational integration without fund-moving credentials.
-- [ ] Add live provider status, capacity and transaction-limit integration.
-- [ ] Add provider and rate circuit breakers.
-- [ ] Add automated reconciliation.
-- [ ] Add reviewed service pause controls.
+- [ ] Reconcile operator LND and Lipila movements to the immutable asset-specific journal.
+- [ ] Add liquidity and rate circuit breakers with reviewed service-pause controls outside Grafana.
+- [ ] Add real rail freshness, capacity, liability and mismatch alerts backed by evidence.
+- [ ] Perform backup restoration, journal verification, data-purge and incident drills.
+- [ ] Measure liquidity shortfalls, second-leg failures and manual interventions per 100 payments.
+
+## Phase 7 — Security, compliance and capped real-money pilot
+
+- [ ] Complete custody, safeguarding, AML/KYC, consumer, privacy, tax and record-retention review
+      with qualified Zambian counsel.
+- [ ] Complete provider-contract, credential, callback, penetration and incident-response reviews.
+- [ ] Establish capital, channel, mobile-money, refund and loss limits.
+- [ ] Run a capped test-money pilot before requesting separate authorization for real funds.
 - [ ] Add a public status page separated from private operator metrics.
-- [ ] Add real-money alerts only after live rails and alert evidence exist.
-- [ ] Perform backup restoration, data-purge and incident drills.
-- [ ] Measure manual interventions per 100 payments.
 
 ## Deferred
 
@@ -91,4 +107,4 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - Native mobile apps.
 - USSD.
 - Multiple countries and providers.
-- Custodial balances.
+- Merchant balances, deposit wallets or stored-value accounts.

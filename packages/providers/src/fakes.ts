@@ -1,23 +1,23 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type {
   BridgeDirection,
+  BridgeEventStatus,
+  BridgeEventVerifier,
   DirectLightningProvider,
   MerchantLightningInvoice,
   ProviderAsset,
-  ProviderPaymentIntent,
-  ProviderPaymentStatus,
-  ProviderQuote,
-  SettlementProvider,
-  VerifiedProviderCallback,
+  VerifiedBridgeCallback,
 } from "./types.js";
 
 const digest = (value: string): string => createHash("sha256").update(value).digest("hex");
 
-const callbackStatuses = new Set<ProviderPaymentStatus>([
-  "collecting",
-  "settling",
-  "settled",
-  "expired",
+const callbackStatuses = new Set<BridgeEventStatus>([
+  "source_pending",
+  "source_confirming",
+  "source_settled",
+  "destination_queued",
+  "destination_processing",
+  "destination_settled",
   "failed",
   "refund_pending",
   "refunded",
@@ -75,7 +75,7 @@ function callbackDirection(value: unknown): BridgeDirection {
   return value;
 }
 
-export class FakeSettlementProvider implements SettlementProvider {
+export class FakeBridgeEventVerifier implements BridgeEventVerifier {
   readonly #callbackSecret: string | undefined;
   readonly #callbackToleranceMilliseconds: number;
   readonly #now: () => Date;
@@ -92,60 +92,10 @@ export class FakeSettlementProvider implements SettlementProvider {
     this.#now = options.now ?? (() => new Date());
   }
 
-  async requestQuote(input: {
-    amountZmwMinor: bigint;
-    direction: "btc_to_zmw" | "zmw_to_btc";
-    idempotencyKey: string;
-  }): Promise<ProviderQuote> {
-    const providerQuoteReference = `fake-quote-${digest(input.idempotencyKey).slice(0, 24)}`;
-    return {
-      expiresAt: new Date(Date.now() + 60_000),
-      feeZmwMinor: 500n,
-      merchantReceivesSats: input.direction === "zmw_to_btc" ? 5_555n : null,
-      merchantReceivesZmwMinor: input.direction === "btc_to_zmw" ? input.amountZmwMinor : null,
-      payerSendsSats: input.direction === "btc_to_zmw" ? 5_834n : null,
-      payerSendsZmwMinor: input.direction === "zmw_to_btc" ? input.amountZmwMinor + 500n : null,
-      providerQuoteReference,
-    };
-  }
-
-  async createPaymentIntent(input: {
-    destination:
-      | {
-          network: "airtel" | "mtn" | "zamtel";
-          phone: string;
-          type: "mobile_money";
-        }
-      | { address: string; type: "lightning_address" }
-      | { invoice: string; type: "lightning_invoice" };
-    direction: "btc_to_zmw" | "zmw_to_btc";
-    idempotencyKey: string;
-    providerQuoteReference: string;
-  }): Promise<ProviderPaymentIntent> {
-    // Destination is intentionally used only during this call and never retained by the fake.
-    void input.destination;
-    const suffix = digest(`${input.providerQuoteReference}:${input.idempotencyKey}`).slice(0, 24);
-    return {
-      checkoutUrl: `https://provider.invalid/checkout/${suffix}`,
-      destinationToken: `fake-destination-${suffix}`,
-      expiresAt: new Date(Date.now() + 60_000),
-      payerInstructions:
-        input.direction === "btc_to_zmw"
-          ? "Open the provider checkout and pay its Lightning invoice."
-          : "Open the provider checkout and approve its mobile-money collection prompt.",
-      providerReference: `fake-intent-${suffix}`,
-      status: "collecting",
-    };
-  }
-
-  async getPaymentStatus(_providerReference: string): Promise<ProviderPaymentStatus> {
-    return "collecting";
-  }
-
   async verifyCallback(input: {
     headers: Readonly<Record<string, string | string[] | undefined>>;
     rawBody: Uint8Array;
-  }): Promise<VerifiedProviderCallback> {
+  }): Promise<VerifiedBridgeCallback> {
     const signature = callbackHeader(input.headers, "x-fake-signature");
     const timestamp = callbackHeader(input.headers, "x-fake-timestamp");
     if (
@@ -190,26 +140,22 @@ export class FakeSettlementProvider implements SettlementProvider {
     }
 
     const occurredAt = new Date(callbackString(payload.occurredAt, 40));
-    const status = callbackString(payload.status, 30);
-    if (
-      Number.isNaN(occurredAt.getTime()) ||
-      !callbackStatuses.has(status as ProviderPaymentStatus)
-    ) {
+    const status = callbackString(payload.status, 40);
+    if (Number.isNaN(occurredAt.getTime()) || !callbackStatuses.has(status as BridgeEventStatus)) {
       throw new ProviderCallbackVerificationError("malformed");
     }
 
-    const payloadHash = createHash("sha256").update(input.rawBody).digest("hex");
     return {
       direction: callbackDirection(payload.direction),
       eventId: callbackString(payload.eventId),
       occurredAt,
-      payloadHash,
+      payloadHash: createHash("sha256").update(input.rawBody).digest("hex"),
       providerReference: callbackString(payload.providerReference),
       settlementAmount: callbackAmount(payload.settlement.amount),
       settlementAsset: callbackAsset(payload.settlement.asset),
       sourceAmount: callbackAmount(payload.source.amount),
       sourceAsset: callbackAsset(payload.source.asset),
-      status: status as ProviderPaymentStatus,
+      status: status as BridgeEventStatus,
     };
   }
 }

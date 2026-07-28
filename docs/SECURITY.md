@@ -2,11 +2,20 @@
 
 ## Fund safety
 
-- Ntumba has no account balances, deposits, wallets, treasury or payment-gateway funds.
-- Bridge collection and merchant settlement are provider-owned.
-- Direct Bitcoin uses a merchant-owned invoice and is never silently replaced.
+- Merchants have no Ntumba account, balance, deposit wallet or stored-value claim.
+- Direct BTC → BTC uses a merchant-owned invoice, is never silently replaced and never passes
+  through operator liquidity.
+- Conversion is custodial during settlement: BTC → ZMW uses operator-controlled Bitcoin then
+  operator ZMW; ZMW → BTC uses operator-controlled ZMW then operator Bitcoin.
+- Destination liquidity must be reserved before source acceptance. Destination settlement cannot
+  begin until source settlement is conclusive and cannot execute twice.
+- Collection and settlement use distinct idempotency keys. Confirmed retries reuse the original
+  key; timeout or unknown outcome enters manual review.
+- Each asset-specific journal transaction is append-only and debit/credit balanced. BTC and ZMW
+  exchange entries are linked but never falsely balanced against each other.
 - Integer-only amounts, short quote expiry and idempotency apply to every request.
-- Unknown provider outcomes require reconciliation before retry.
+- The bridge is disabled by default. Fake mode is rejected in production and contains no external
+  call path or real credentials.
 
 ## Privacy boundary
 
@@ -14,12 +23,13 @@ Merchant destinations and payer details must not enter logs, errors, traces, ana
 PostgreSQL. Request bodies are not logged. Unexpected server errors record an error type only.
 Provider adapters must scrub upstream errors before returning them.
 
-The server does see a merchant destination transiently during provider-intent creation. TLS,
+The server does see a merchant destination transiently during intent creation. TLS,
 restricted process access and careful crash/debug tooling are therefore required.
 
-The provider-intent outbox is intentionally payload-free. It stores no raw, encrypted or hashed
-destination. Recovery requires the client to resubmit the destination with the same idempotency
-key; a future autonomous worker requires a reviewed provider-side opaque tokenization capability.
+The outbox is intentionally payload-free. The current destination vault is development-only,
+in-memory and expiring. Production requires provider-issued opaque beneficiary tokenization or a
+reviewed short-lived envelope-encrypted store with automatic deletion. Destination loss after
+source settlement creates a refund/manual-review obligation.
 
 ## Provider callbacks
 
@@ -56,16 +66,19 @@ detail. Prometheus and the internal port are not published; Grafana binds to `12
 anonymous access/sign-up/analytics, update checks and suggested-plugin preinstallation, and
 receives its admin password from a secret. This avoids routine outbound Grafana catalog requests.
 
-The dashboard is read-only. Read-only observability adapters must never accept an LND admin
+The dashboard is read-only. Its fake balance and capacity metrics do not authorize payment.
+Read-only observability adapters must never accept an LND admin
 macaroon, wallet seed/unlock credential or expose invoice-payment, disbursement, refund or service
 pause methods. Future remote access should use separately administered Tailscale Serve within the
 operator tailnet, never a public Funnel/tunnel.
 
 ## Launch gates
 
-Before real funds: complete provider security review, callback fixtures, penetration testing,
-dependency/secret scanning, privacy review, data-retention decision, incident exercises and
-qualified Zambian legal/regulatory review.
+Before real funds: complete provider security and counterparty review, least-privilege credential
+design, callback fixtures, penetration testing, dependency/secret scanning, treasury
+reconciliation, backup/restore and incident exercises, capital/liquidity/refund limits, privacy
+and retention decisions, and qualified Zambian custody/safeguarding, payment-services, AML/KYC,
+consumer, tax and regulatory review.
 
 ## Automated scanning
 

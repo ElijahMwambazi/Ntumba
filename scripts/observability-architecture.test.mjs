@@ -108,6 +108,27 @@ assert.equal(dashboard.title, "Ntumba Operator");
 assert.equal(dashboard.editable, false);
 assert.equal(dashboard.panels.filter((panel) => panel.type === "row").length, 7);
 assert.doesNotMatch(dashboardSource, /gradient/i);
+for (const panel of dashboard.panels) {
+  assert.ok(!panel.links?.length, `dashboard panel ${panel.id} must not expose action links`);
+}
+for (const metric of [
+  "ntumba_fake_lightning_node_available",
+  "ntumba_fake_bitcoin_treasury_balance_sats",
+  "ntumba_fake_lightning_inbound_capacity_sats",
+  "ntumba_fake_lightning_outbound_capacity_sats",
+  "ntumba_fake_lipila_available",
+  "ntumba_fake_lipila_treasury_balance_zmw_minor",
+  "ntumba_treasury_reserved",
+  "ntumba_treasury_unsettled_liability",
+  "ntumba_treasury_pipeline_transactions",
+  "ntumba_reconciliation_last_success_timestamp_seconds",
+]) {
+  assert.match(dashboardSource, new RegExp(`\\b${metric}\\b`));
+}
+assert.doesNotMatch(
+  dashboardSource,
+  /(?:payment_id|provider_reference|destination_token|phone|bolt11|merchant_name)\s*[=~]/i,
+);
 for (const section of [
   "Overview",
   "Attention required",

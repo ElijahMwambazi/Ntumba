@@ -8,7 +8,7 @@ payer feature, public status page or administrative control plane.
 ```text
 Public 3000 ──> Ntumba Fastify API + merchant PWA
                      │
-                     ├── aggregate-only PaymentStore reads ──> PostgreSQL
+                     ├── aggregate-only store + fake treasury reads
                      │
 Private 9091 ─> bearer-protected health + Prometheus metrics
                      ▲
@@ -40,8 +40,8 @@ Open Grafana at <http://127.0.0.1:3001> and sign in as `ntumba-operator` (or the
 separate: `docker compose --profile production up` does not enable the internal listener.
 
 Run the forward-only migration command before the stack starts on a fresh database and after
-pulling a revision that adds migrations. It applies only repository migrations; this observability
-milestone adds no schema migration.
+pulling a revision that adds migrations. The treasury-foundation migration adds the two-leg,
+liquidity, obligation, journal, reconciliation and refund structures.
 
 PostgreSQL 18 stores versioned clusters under `/var/lib/postgresql`. If an existing
 `ntumba-postgres` volume was created by an older major version, preserve it and complete a reviewed
@@ -96,6 +96,10 @@ All names use the `ntumba_` prefix. Labels are bounded enums or registered Fasti
 | Outbox | pending count, oldest age, bounded attempt buckets and safe last-failure category |
 | Retention | last successful purge, failures, purged counts and records eligible for purge |
 | Rate placeholder | `rate_last_success_timestamp_seconds`, which is zero while the rate mode is fake |
+| Fake Bitcoin treasury | fake node availability, BTC balance and inbound/outbound capacity |
+| Fake mobile treasury | fake Lipila availability and ZMW balance |
+| Treasury pipeline | reserved/liability amounts by bounded asset; source/destination wait, refund and manual-review counts |
+| Reconciliation | last successful deterministic fake reconciliation timestamp |
 
 Metrics never contain merchant names, references, phone numbers, Lightning addresses, invoices,
 public/local IDs, payment-intent IDs, provider references, destination tokens, idempotency keys,
@@ -104,17 +108,17 @@ callback bodies, database URLs or credentials. HTTP labels use registered route 
 
 ## Dashboard sections
 
-1. **Overview** — development status, API/database/jobs, provider/rate modes, public-request
+1. **Overview** — development status, API/database/jobs, bridge/rate modes, public-request
    durability warning and build commit.
-2. **Attention required** — manual review, refund pending, failed intents, backlog ages and purge
+2. **Attention required** — manual review, refund required, failed/unavailable intents, backlog ages and purge
    failures.
-3. **Payment pipeline** — aggregate intent direction/state and provider/direct states.
+3. **Payment pipeline** — aggregate intent direction/state, two-leg fake treasury stages and
+   direct states.
 4. **Provider and callbacks** — acceptance/rejection, duplicates/conflicts, last callback and
    event/outbox backlog.
-5. **Bitcoin rail** — fake-only rail state plus explicit node, verification and external-channel
-   capacity unavailability.
-6. **Mobile-money rail** — fake provider, development-only collection/settlement, unavailable
-   provider-reported limits and no real settlement.
+5. **Bitcoin rail** — fake operator node availability, BTC balance, capacities, reservations and
+   liabilities, while direct verification remains not configured.
+6. **Mobile-money rail** — fake Lipila availability, ZMW balance, reservations and liabilities.
 7. **Privacy and lifecycle** — retained/overdue records, purge status and the storage boundary.
 
 ## Fake and not-configured semantics
@@ -127,19 +131,17 @@ callback bodies, database URLs or credentials. HTTP labels use registered route 
 - `unhealthy`: a configured live capability failed its health contract. It is distinct from
   missing configuration.
 
-There is no Ntumba Lightning node. External Lightning channel capacity, inbound capacity, outbound
-capacity and payment verification are unavailable or not configured—not zero. These values must
-never be called “Ntumba liquidity.” The preferred future terms are **external Lightning channel
-capacity**, **provider-reported settlement capacity**, **provider transaction limits** and **rail
-availability**.
+There is no live Ntumba Lightning node. Fake node balance and capacity values are deterministic
+simulations—not evidence of real liquidity. Direct merchant-wallet payment verification remains
+not configured. A future Voltage adapter will expose explicitly operator-controlled liquidity and
+must use separately reviewed least-privilege credentials.
 
 ## Future read-only integrations
 
-`@ntumba/observability` defines `ReadOnlyLightningStatusAdapter` and
-`ReadOnlyProviderCapacityAdapter`. Future implementations may read sanitized node/provider health,
-capacity and limits. They must not create or pay invoices, unlock a wallet, initiate settlement,
-request a refund or accept a credential capable of moving funds. Adding a live adapter requires a
-separate reviewed milestone.
+`@ntumba/observability` defines read-only status adapters. Future implementations may read
+sanitized node/provider health, capacity and limits using read-only credentials separated from
+the fund-moving rail adapter. Dashboard/status code must not create or pay invoices, unlock a
+wallet, initiate settlement, request a refund or pause a service.
 
 ## Alerts
 
@@ -161,6 +163,6 @@ claimed.
   provisioned and inspect Prometheus target logs inside the private stack.
 - **Provisioning changed:** restart Grafana. Version-controlled files overwrite UI edits by design.
 
-See [Runbooks](RUNBOOKS.md) for first-response actions. The dashboard does not change Ntumba's
-non-custodial boundary: the operator observes opaque aggregate coordination state and never
-controls payment funds.
+See [Runbooks](RUNBOOKS.md) for first-response actions. The dashboard does not move funds. It
+truthfully exposes aggregate fake operator-liquidity state; only direct BTC → BTC remains
+non-custodial.

@@ -1,33 +1,58 @@
 import { createHmac } from "node:crypto";
 import type { NtumbaConfig } from "@ntumba/config";
 import { NtumbaMetrics } from "@ntumba/observability";
-import { FakeDirectLightningProvider, FakeSettlementProvider } from "@ntumba/providers";
+import { FakeBridgeEventVerifier, FakeDirectLightningProvider } from "@ntumba/providers";
+import type { BridgeEngine } from "@ntumba/treasury";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { InMemoryPaymentStore } from "./payment-store.js";
+import { createFakeTreasuryRuntime } from "./treasury.js";
 
-class FailOnceSettlementProvider extends FakeSettlementProvider {
+class FailOnceBridgeEngine implements BridgeEngine {
   readonly attemptedIdempotencyKeys: string[] = [];
+  readonly #delegate: BridgeEngine;
 
-  override async createPaymentIntent(
-    input: Parameters<FakeSettlementProvider["createPaymentIntent"]>[0],
-  ) {
-    this.attemptedIdempotencyKeys.push(input.idempotencyKey);
+  constructor(delegate: BridgeEngine) {
+    this.#delegate = delegate;
+  }
+
+  async create(input: Parameters<BridgeEngine["create"]>[0]) {
+    this.attemptedIdempotencyKeys.push(input.collectionIdempotencyKey);
     if (this.attemptedIdempotencyKeys.length === 1) {
       throw new Error("Synthetic provider timeout");
     }
-    return super.createPaymentIntent(input);
+    return this.#delegate.create(input);
   }
+
+  expireBeforeSourceSettlement: BridgeEngine["expireBeforeSourceSettlement"] = (...args) =>
+    this.#delegate.expireBeforeSourceSettlement(...args);
+  markSourceOutcome: BridgeEngine["markSourceOutcome"] = (...args) =>
+    this.#delegate.markSourceOutcome(...args);
+  processDestination: BridgeEngine["processDestination"] = (...args) =>
+    this.#delegate.processDestination(...args);
+  read: BridgeEngine["read"] = (...args) => this.#delegate.read(...args);
+  readOperationalStatus: BridgeEngine["readOperationalStatus"] = () =>
+    this.#delegate.readOperationalStatus();
+  requireRefund: BridgeEngine["requireRefund"] = (...args) => this.#delegate.requireRefund(...args);
+  retryDestination: BridgeEngine["retryDestination"] = (...args) =>
+    this.#delegate.retryDestination(...args);
 }
 
 const config: NtumbaConfig = {
   APP_BASE_URL: "http://localhost:5173",
+  BITCOIN_LIQUIDITY_RAIL_MODE: "fake",
+  BRIDGE_ENGINE_MODE: "fake",
   DATABASE_URL: "postgresql://ntumba:ntumba@localhost:5432/ntumba_test",
+  FAKE_BITCOIN_TREASURY_BALANCE_SATS: 5_000_000n,
+  FAKE_BITCOIN_TREASURY_INBOUND_CAPACITY_SATS: 10_000_000n,
+  FAKE_BITCOIN_TREASURY_OUTBOUND_CAPACITY_SATS: 5_000_000n,
+  FAKE_LIPILA_BALANCE_ZMW_MINOR: 5_000_000n,
   FLAT_FEE_ZMW: "5.00",
   HOST: "127.0.0.1",
   INTENT_RETENTION_SECONDS: 86_400,
   JOBS_ENABLED: false,
   LOG_LEVEL: "silent",
+  MOBILE_MONEY_LIQUIDITY_RAIL_MODE: "fake",
   NODE_ENV: "test",
   NTUMBA_BUILD_COMMIT: "development",
   OPS_ENABLED: false,
@@ -38,7 +63,7 @@ const config: NtumbaConfig = {
   QUOTE_TTL_SECONDS: 60,
   RATE_PROVIDER_MODE: "fake",
   SERVE_WEB: false,
-  SETTLEMENT_PROVIDER_MODE: "fake",
+  SETTLEMENT_DESTINATION_TTL_SECONDS: 300,
   STATIC_BTC_ZMW_RATE: "1800000.00",
   VARIABLE_FEE_BPS: 0,
 };
@@ -125,7 +150,7 @@ describe("Ntumba API", () => {
     expect(response.json()).toMatchObject({ error: { code: "INVALID_REQUEST" } });
   });
 
-  it("creates a provider-direct intent without echoing a merchant phone", async () => {
+  it("creates a fake treasury bridge intent without echoing a merchant phone", async () => {
     const app = await buildApp(config);
     openApps.push(app);
     const quoted = await quote(app);
@@ -148,17 +173,18 @@ describe("Ntumba API", () => {
     expect(response.statusCode).toBe(201);
     expect(response.json()).toMatchObject({
       checkout: { type: "provider" },
-      status: "provider_collecting",
+      status: "awaiting_source_payment",
     });
     expect(response.body).not.toContain("0971234567");
   });
 
   it("resumes a staged provider intent after a transient provider failure", async () => {
     const store = new InMemoryPaymentStore();
-    const settlementProvider = new FailOnceSettlementProvider();
+    const bridgeEngine = new FailOnceBridgeEngine(createFakeTreasuryRuntime(config).bridgeEngine);
     const app = await buildApp(config, {
+      bridgeEngine,
+      bridgeEventVerifier: new FakeBridgeEventVerifier(),
       directLightningProvider: new FakeDirectLightningProvider(),
-      settlementProvider,
       store,
     });
     openApps.push(app);
@@ -190,11 +216,11 @@ describe("Ntumba API", () => {
     expect(recovered.statusCode).toBe(201);
     expect(recovered.json()).toMatchObject({
       paymentIntentId: staged?.id,
-      status: "provider_collecting",
+      status: "awaiting_source_payment",
     });
-    expect(settlementProvider.attemptedIdempotencyKeys).toEqual([
-      payload.idempotencyKey,
-      payload.idempotencyKey,
+    expect(bridgeEngine.attemptedIdempotencyKeys).toEqual([
+      `collection:${payload.idempotencyKey}`,
+      `collection:${payload.idempotencyKey}`,
     ]);
     expect(await store.getProviderIntentOutbox(staged?.id ?? "")).toMatchObject({
       attemptCount: 2,
@@ -236,9 +262,11 @@ describe("Ntumba API", () => {
     const secret = "x".repeat(32);
     const store = new InMemoryPaymentStore();
     const metrics = new NtumbaMetrics({
+      bitcoinRailMode: "fake",
+      bridgeMode: "fake",
       buildCommit: "development",
       jobsEnabled: false,
-      providerMode: "fake",
+      mobileMoneyRailMode: "fake",
       publicRequestStore: "development_non_durable",
       rateMode: "fake",
       startedAt: now,
@@ -246,8 +274,12 @@ describe("Ntumba API", () => {
     const app = await buildApp(
       config,
       {
+        bridgeEngine: createFakeTreasuryRuntime(config).bridgeEngine,
+        bridgeEventVerifier: new FakeBridgeEventVerifier({
+          callbackSecret: secret,
+          now: () => now,
+        }),
         directLightningProvider: new FakeDirectLightningProvider(),
-        settlementProvider: new FakeSettlementProvider({ callbackSecret: secret, now: () => now }),
         store,
       },
       undefined,
@@ -272,7 +304,7 @@ describe("Ntumba API", () => {
       providerReference: intent.json().checkout.providerReference,
       settlement: { amount: "10000", asset: "ZMW" },
       source: { amount: "5834", asset: "BTC" },
-      status: "settling",
+      status: "destination_processing",
     };
 
     const rejected = await app.inject({
@@ -281,7 +313,7 @@ describe("Ntumba API", () => {
       ...signedCallback("y".repeat(32), callbackPayload, now),
     });
     expect(rejected.statusCode).toBe(401);
-    expect(await store.getProviderEvent("fake", "fake-event-1")).toBeUndefined();
+    expect(await store.getProviderEvent("fake_treasury", "fake-event-1")).toBeUndefined();
 
     const accepted = await app.inject({
       method: "POST",
@@ -290,12 +322,12 @@ describe("Ntumba API", () => {
     });
     expect(accepted.statusCode).toBe(202);
     expect(accepted.json()).toEqual({ status: "accepted" });
-    const stored = await store.getProviderEvent("fake", "fake-event-1");
+    const stored = await store.getProviderEvent("fake_treasury", "fake-event-1");
     expect(stored).toMatchObject({
-      normalizedStatus: "settling",
+      normalizedStatus: "destination_processing",
       paymentIntentId: intent.json().paymentIntentId,
       processedAt: null,
-      provider: "fake",
+      provider: "fake_treasury",
     });
     expect(JSON.stringify(stored)).not.toContain(callbackPayload.providerReference);
     expect(JSON.stringify(stored)).not.toContain("source");
@@ -307,7 +339,7 @@ describe("Ntumba API", () => {
     });
     expect(duplicate.statusCode).toBe(200);
     expect(duplicate.json()).toEqual({ status: "duplicate" });
-    expect(await store.getProviderEvent("fake", "fake-event-1")).toEqual(stored);
+    expect(await store.getProviderEvent("fake_treasury", "fake-event-1")).toEqual(stored);
 
     const conflictingReplay = await app.inject({
       method: "POST",
@@ -315,7 +347,7 @@ describe("Ntumba API", () => {
       ...signedCallback(secret, { ...callbackPayload, status: "failed" }, now),
     });
     expect(conflictingReplay.statusCode).toBe(409);
-    expect(await store.getProviderEvent("fake", "fake-event-1")).toEqual(stored);
+    expect(await store.getProviderEvent("fake_treasury", "fake-event-1")).toEqual(stored);
     const metricText = metrics.render(await store.readOperationalSnapshot(now), true, now);
     expect(metricText).toContain('outcome="accepted",reason="none"} 1');
     expect(metricText).toContain('outcome="duplicate",reason="none"} 1');
@@ -329,8 +361,12 @@ describe("Ntumba API", () => {
     const secret = "x".repeat(32);
     const store = new InMemoryPaymentStore();
     const app = await buildApp(config, {
+      bridgeEngine: createFakeTreasuryRuntime(config).bridgeEngine,
+      bridgeEventVerifier: new FakeBridgeEventVerifier({
+        callbackSecret: secret,
+        now: () => now,
+      }),
       directLightningProvider: new FakeDirectLightningProvider(),
-      settlementProvider: new FakeSettlementProvider({ callbackSecret: secret, now: () => now }),
       store,
     });
     openApps.push(app);
@@ -352,7 +388,7 @@ describe("Ntumba API", () => {
       providerReference: intent.json().checkout.providerReference,
       settlement: { amount: "9999", asset: "ZMW" },
       source: { amount: "5834", asset: "BTC" },
-      status: "settling",
+      status: "destination_processing",
     };
 
     const response = await app.inject({
@@ -362,7 +398,7 @@ describe("Ntumba API", () => {
     });
 
     expect(response.statusCode).toBe(409);
-    expect(await store.getProviderEvent("fake", "fake-event-mismatch")).toBeUndefined();
+    expect(await store.getProviderEvent("fake_treasury", "fake-event-mismatch")).toBeUndefined();
   });
 
   it("publishes an opaque development request without a merchant destination", async () => {

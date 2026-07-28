@@ -82,7 +82,8 @@ different opaque identifiers. Raw destinations do not appear in URLs.
 - Refreshes request data after method selection before showing quote details.
 - Presents rate, fee and countdown in plain language.
 - Uses one action for the selected rail.
-- Describes provider-direct behavior without custody jargon.
+- Describes the fake operator-liquidity bridge plainly without implying that conversion is
+  non-custodial.
 - Never calls direct Bitcoin paid without verification.
 - Shows expired, unavailable, loading and development-fake states explicitly.
 

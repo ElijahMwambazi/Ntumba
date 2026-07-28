@@ -3,15 +3,18 @@
 Ntumba is an accountless, merchant-first payment-request and routing application for Zambia.
 Merchants create one-time requests without registering. Payers open the link as anonymous guests.
 
-Three safe payment directions are modeled:
+Ntumba is **an accountless payment bridge with direct settlement and no merchant balances**.
+Three payment directions are modeled:
 
-- BTC → BTC: the payer pays a merchant-owned Lightning invoice directly.
-- BTC → ZMW: the payer pays an external provider over Lightning; that provider settles the
-  merchant's mobile-money destination.
-- ZMW → BTC: the payer pays an external provider through mobile money; that provider settles the
-  merchant's external Lightning wallet.
+- BTC → BTC: the payer pays a merchant-owned Lightning invoice directly. This rail is
+  non-custodial; Ntumba never receives or forwards the Bitcoin.
+- BTC → ZMW: the intended production design collects Bitcoin to an operator-controlled
+  Voltage-hosted LND node, then disburses ZMW from the operator's Lipila balance.
+- ZMW → BTC: the intended production design collects ZMW into the operator's Lipila balance, then
+  pays the merchant invoice from the operator-controlled LND node.
 
-Ntumba coordinates intents and status. It does not receive, control, forward or reuse funds.
+The conversion directions are custodial during settlement because Ntumba controls both liquidity
+legs. Merchants still have no Ntumba account, balance, deposit wallet or synchronized profile.
 
 ## Implemented
 
@@ -23,16 +26,20 @@ Ntumba coordinates intents and status. It does not receive, control, forward or 
 - Versioned IndexedDB preferences, requests and receipts with a confirmed clear-data action.
 - Opaque public request links with QR, copy-link and native Web Share support.
 - Fastify quote and fake payment-intent APIs.
-- Integer-only quotes and explicit provider/direct payment states.
-- Provider-direct settlement and merchant-owned Lightning boundaries.
-- Signed fake-provider callbacks with append-only normalized event ingestion.
+- Integer-only quotes and explicit source, destination and direct-payment states.
+- Disabled-by-default fake operator treasury with separate Lightning, mobile-money, rate,
+  inventory, coordinator, destination-vault, journal and reconciliation boundaries.
+- Merchant-owned direct Lightning boundary that is never substituted with operator liquidity.
+- Signed fake-treasury callbacks with append-only normalized event ingestion.
 - Payload-free transactional provider-intent outbox with idempotent client-assisted recovery.
-- Minimal PostgreSQL state with normalized events and scheduled expiry/purge support.
+- Forward-only PostgreSQL treasury foundation for bridge legs, reservations, obligations,
+  attempts, append-only balanced journal entries, reconciliation and refund obligations.
 - Disabled-by-default private operator listener with aggregate Prometheus metrics and a provisioned
   loopback-only Grafana dashboard under the opt-in Compose `ops` profile.
-- Safe fake providers only.
+- Deterministic fake Voltage/LND and fake Lipila adapters only.
 
-No real funds or live providers are supported.
+No Voltage connection, Lipila connection, live rate, mainnet payment or real funds are supported.
+The fake destination vault is process memory only and is not production-safe.
 
 ## Requirements
 
@@ -45,6 +52,8 @@ No real funds or live providers are supported.
 ```bash
 corepack enable
 cp .env.example .env
+# Optional local conversion simulation only:
+# set BRIDGE_ENGINE_MODE=fake in .env
 yarn install --immutable
 docker compose up -d database
 yarn db:migrate

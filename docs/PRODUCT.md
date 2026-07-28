@@ -2,7 +2,7 @@
 
 ## Promise
 
-**Create a payment request. The payer pays the merchant or settlement provider directly.**
+**An accountless payment bridge with direct settlement and no merchant balances.**
 
 The merchant is the primary user and does not create an Ntumba account. The payer is an anonymous
 guest.
@@ -10,11 +10,13 @@ guest.
 ## Directions
 
 1. BTC → BTC pays a merchant-owned invoice directly.
-2. BTC → ZMW pays an external provider that settles the merchant's mobile money.
-3. ZMW → BTC pays an external provider that settles the merchant's external Lightning wallet.
+2. BTC → ZMW is designed to collect into operator-controlled Lightning liquidity and then
+   disburse from operator mobile-money liquidity.
+3. ZMW → BTC is designed to collect into operator mobile-money liquidity and then pay from
+   operator-controlled Lightning liquidity.
 
-For conversion directions, the external provider owns both collection and merchant settlement.
-Ntumba never receives or forwards either leg.
+For conversion directions, Ntumba controls source and destination liquidity during settlement.
+Merchants still have no Ntumba account, balance, deposit wallet or synchronized profile.
 
 ## Merchant experience
 
@@ -31,11 +33,12 @@ vendor and operational scope without being necessary for ordinary link sharing.
 All calculations use integer ngwee and satoshis. The payer sees what they send, what the merchant
 receives, rate, fee and expiry. The merchant amount is not silently reduced by fees.
 
-## Exact non-custodial boundary
+## Exact custody boundary
 
-Ntumba creates opaque coordination records and reads normalized provider status. It has no wallet,
-treasury, liquidity, payment-gateway balance or unrestricted node credential. A provider may
-receive source funds and settle destination funds, but those are provider-controlled flows.
+Direct BTC → BTC goes from payer wallet to merchant wallet and is non-custodial. Conversion is
+custodial during settlement because the operator treasury receives the source asset and owes the
+destination asset. The current implementation is disabled-by-default deterministic fake
+infrastructure with no network calls, real credentials or real funds.
 
 The server can see a destination transiently when it sends that value to a provider. Avoiding
 retention is not the same as being unable to see it.
@@ -44,7 +47,7 @@ retention is not the same as being unable to see it.
 
 - Authentication, merchant profiles or cloud-synchronized history.
 - Custodial balances, deposit addresses or internal wallets.
-- Operator-controlled liquidity or treasury.
+- Merchant balances, deposits or stored-value accounts.
 - Native mobile applications.
 - WhatsApp Business Platform.
 - Live provider integrations in the current milestone.

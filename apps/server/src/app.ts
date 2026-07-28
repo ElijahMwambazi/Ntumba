@@ -11,7 +11,11 @@ import swaggerUi from "@fastify/swagger-ui";
 import type { NtumbaConfig } from "@ntumba/config";
 import { loadConfig } from "@ntumba/config";
 import type { NtumbaMetrics } from "@ntumba/observability";
-import { FakeDirectLightningProvider, FakeSettlementProvider } from "@ntumba/providers";
+import {
+  type BridgeEventVerifier,
+  FakeBridgeEventVerifier,
+  FakeDirectLightningProvider,
+} from "@ntumba/providers";
 import Fastify from "fastify";
 import {
   hasZodFastifySchemaValidationErrors,
@@ -26,19 +30,28 @@ import { type PaymentRouteDependencies, paymentIntentRoutes } from "./routes/pay
 import { providerCallbackRoutes } from "./routes/provider-callbacks.js";
 import { publicRequestRoutes } from "./routes/public-requests.js";
 import { quoteRoutes } from "./routes/quotes.js";
+import { createFakeTreasuryRuntime } from "./treasury.js";
+
+type AppDependencies = PaymentRouteDependencies & {
+  bridgeEventVerifier: BridgeEventVerifier;
+};
 
 export async function buildApp(
   config: NtumbaConfig = loadConfig(),
-  dependencies: PaymentRouteDependencies = {
-    directLightningProvider: new FakeDirectLightningProvider(),
-    settlementProvider: new FakeSettlementProvider({
-      callbackSecret: config.FAKE_PROVIDER_CALLBACK_SECRET,
-    }),
-    store: new InMemoryPaymentStore(),
-  },
+  dependencies?: AppDependencies,
   publicRequestStore = new InMemoryPublicRequestStore(),
   metrics?: NtumbaMetrics,
 ) {
+  const resolvedDependencies: AppDependencies =
+    dependencies ??
+    ({
+      bridgeEngine: createFakeTreasuryRuntime(config).bridgeEngine,
+      bridgeEventVerifier: new FakeBridgeEventVerifier({
+        callbackSecret: config.FAKE_PROVIDER_CALLBACK_SECRET,
+      }),
+      directLightningProvider: new FakeDirectLightningProvider(),
+      store: new InMemoryPaymentStore(),
+    } satisfies AppDependencies);
   const logger =
     config.NODE_ENV === "test"
       ? false
@@ -91,7 +104,8 @@ export async function buildApp(
     openapi: {
       info: {
         title: "Ntumba API",
-        description: "Accountless provider-direct Bitcoin and Kwacha payment coordination.",
+        description:
+          "An accountless payment bridge with direct settlement and no merchant balances.",
         version: "0.1.0",
       },
     },
@@ -128,12 +142,16 @@ export async function buildApp(
   });
 
   await app.register(healthRoutes, { prefix: "/api" });
-  await app.register(quoteRoutes(config, dependencies.store), { prefix: "/api/v1" });
-  await app.register(paymentIntentRoutes(config, { ...dependencies, metrics }), {
+  await app.register(quoteRoutes(config, resolvedDependencies.store), { prefix: "/api/v1" });
+  await app.register(paymentIntentRoutes(config, { ...resolvedDependencies, metrics }), {
     prefix: "/api/v1",
   });
   await app.register(
-    providerCallbackRoutes(dependencies.settlementProvider, dependencies.store, metrics),
+    providerCallbackRoutes(
+      resolvedDependencies.bridgeEventVerifier,
+      resolvedDependencies.store,
+      metrics,
+    ),
     { prefix: "/api/v1" },
   );
   await app.register(publicRequestRoutes(config, publicRequestStore), { prefix: "/api/v1" });

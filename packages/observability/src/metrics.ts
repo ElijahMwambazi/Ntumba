@@ -10,13 +10,21 @@ import {
 export type PaymentDirection = "btc_to_btc" | "btc_to_zmw" | "zmw_to_btc";
 export type PaymentStatus =
   | "created"
+  | "quote_locked"
+  | "awaiting_source_payment"
+  | "source_payment_confirming"
+  | "source_payment_settled"
+  | "destination_settlement_queued"
+  | "destination_settlement_processing"
   | "direct_payment_pending"
   | "direct_payment_settled"
   | "expired"
-  | "failed"
+  | "source_payment_failed"
+  | "destination_settlement_failed"
+  | "liquidity_unavailable"
+  | "rate_expired"
+  | "refund_required"
   | "manual_review"
-  | "provider_collecting"
-  | "provider_settling"
   | "refund_pending"
   | "refunded"
   | "settled";
@@ -33,6 +41,23 @@ export interface OperationalSnapshot {
   pendingOutbox: number;
   purgeEligible: Record<OperationalRecordType, number>;
   retained: Record<OperationalRecordType, number>;
+  treasury: {
+    bitcoinBalanceSats: bigint;
+    inboundCapacitySats: bigint;
+    lastSuccessfulReconciliationAt: Date | null;
+    lightningAvailable: boolean;
+    manualReview: number;
+    mobileMoneyAvailable: boolean;
+    mobileMoneyBalanceZmwMinor: bigint;
+    outboundCapacitySats: bigint;
+    refundRequired: number;
+    reservedBtcSats: bigint;
+    reservedZmwMinor: bigint;
+    unsettledBtcLiabilitySats: bigint;
+    unsettledZmwLiabilityMinor: bigint;
+    waitingDestinationSettlement: number;
+    waitingSourcePayment: number;
+  };
   unprocessedProviderEvents: number;
 }
 
@@ -41,9 +66,11 @@ export interface OperationalSnapshotReader {
 }
 
 export interface MetricsContext {
+  bitcoinRailMode: "fake";
+  bridgeMode: "disabled" | "fake";
   buildCommit: string;
   jobsEnabled: boolean;
-  providerMode: "fake";
+  mobileMoneyRailMode: "fake";
   publicRequestStore: "development_non_durable";
   rateMode: "fake" | "live";
   startedAt: Date;
@@ -61,13 +88,21 @@ const recordTypes: OperationalRecordType[] = ["events", "intents", "outbox", "qu
 const directions: PaymentDirection[] = ["btc_to_btc", "btc_to_zmw", "zmw_to_btc"];
 const paymentStatuses: PaymentStatus[] = [
   "created",
-  "provider_collecting",
-  "provider_settling",
+  "quote_locked",
+  "awaiting_source_payment",
+  "source_payment_confirming",
+  "source_payment_settled",
+  "destination_settlement_queued",
+  "destination_settlement_processing",
   "direct_payment_pending",
   "direct_payment_settled",
   "settled",
   "expired",
-  "failed",
+  "source_payment_failed",
+  "destination_settlement_failed",
+  "liquidity_unavailable",
+  "rate_expired",
+  "refund_required",
   "refund_pending",
   "refunded",
   "manual_review",
@@ -111,6 +146,23 @@ export function emptyOperationalSnapshot(): OperationalSnapshot {
     pendingOutbox: 0,
     purgeEligible: { events: 0, intents: 0, outbox: 0, quotes: 0 },
     retained: { events: 0, intents: 0, outbox: 0, quotes: 0 },
+    treasury: {
+      bitcoinBalanceSats: 0n,
+      inboundCapacitySats: 0n,
+      lastSuccessfulReconciliationAt: null,
+      lightningAvailable: false,
+      manualReview: 0,
+      mobileMoneyAvailable: false,
+      mobileMoneyBalanceZmwMinor: 0n,
+      outboundCapacitySats: 0n,
+      refundRequired: 0,
+      reservedBtcSats: 0n,
+      reservedZmwMinor: 0n,
+      unsettledBtcLiabilitySats: 0n,
+      unsettledZmwLiabilityMinor: 0n,
+      waitingDestinationSettlement: 0,
+      waitingSourcePayment: 0,
+    },
     unprocessedProviderEvents: 0,
   };
 }
@@ -206,7 +258,7 @@ export class NtumbaMetrics {
     lines.push(`${METRIC_NAMES.jobsEnabled} ${this.#context.jobsEnabled ? 1 : 0}`);
     metric(lines, METRIC_NAMES.modeInfo, "Safe runtime mode information.", "gauge");
     lines.push(
-      `${METRIC_NAMES.modeInfo}${labels({ provider_mode: this.#context.providerMode, public_request_store: this.#context.publicRequestStore, rate_mode: this.#context.rateMode })} 1`,
+      `${METRIC_NAMES.modeInfo}${labels({ bitcoin_rail_mode: this.#context.bitcoinRailMode, bridge_mode: this.#context.bridgeMode, mobile_money_rail_mode: this.#context.mobileMoneyRailMode, public_request_store: this.#context.publicRequestStore, rate_mode: this.#context.rateMode })} 1`,
     );
 
     metric(
@@ -387,7 +439,18 @@ export class NtumbaMetrics {
     for (const direction of directions) {
       for (const state of ["available", "fake_only", "not_configured", "unhealthy"]) {
         lines.push(
-          `${METRIC_NAMES.railState}${labels({ direction, state })} ${state === "fake_only" ? 1 : 0}`,
+          `${METRIC_NAMES.railState}${labels({ direction, state })} ${
+            state ===
+            (
+              direction === "btc_to_btc"
+                ? "fake_only"
+                : this.#context.bridgeMode === "fake"
+                  ? "fake_only"
+                  : "not_configured"
+            )
+              ? 1
+              : 0
+          }`,
         );
       }
     }
@@ -404,9 +467,13 @@ export class NtumbaMetrics {
       "outbound_capacity",
       "payment_verification",
     ]) {
-      lines.push(
-        `${METRIC_NAMES.lightningCapability}${labels({ capability, state: capability.includes("capacity") ? "unavailable" : "not_configured" })} 1`,
-      );
+      const state =
+        capability === "payment_verification"
+          ? "not_configured"
+          : this.#context.bridgeMode === "fake"
+            ? "fake_only"
+            : "not_configured";
+      lines.push(`${METRIC_NAMES.lightningCapability}${labels({ capability, state })} 1`);
     }
     metric(
       lines,
@@ -433,6 +500,104 @@ export class NtumbaMetrics {
       "gauge",
     );
     lines.push(`${METRIC_NAMES.rateLastSuccess} 0`);
+
+    metric(
+      lines,
+      METRIC_NAMES.lightningNodeAvailable,
+      "Whether the deterministic fake Lightning treasury is available.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.lightningNodeAvailable} ${snapshot.treasury.lightningAvailable ? 1 : 0}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.bitcoinTreasuryBalance,
+      "Deterministic fake Bitcoin treasury balance in satoshis.",
+      "gauge",
+    );
+    lines.push(`${METRIC_NAMES.bitcoinTreasuryBalance} ${snapshot.treasury.bitcoinBalanceSats}`);
+    metric(
+      lines,
+      METRIC_NAMES.lightningInboundCapacity,
+      "Deterministic fake inbound Lightning capacity in satoshis.",
+      "gauge",
+    );
+    lines.push(`${METRIC_NAMES.lightningInboundCapacity} ${snapshot.treasury.inboundCapacitySats}`);
+    metric(
+      lines,
+      METRIC_NAMES.lightningOutboundCapacity,
+      "Deterministic fake outbound Lightning capacity in satoshis.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.lightningOutboundCapacity} ${snapshot.treasury.outboundCapacitySats}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.mobileMoneyAvailable,
+      "Whether the deterministic fake Lipila treasury is available.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.mobileMoneyAvailable} ${snapshot.treasury.mobileMoneyAvailable ? 1 : 0}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.mobileMoneyTreasuryBalance,
+      "Deterministic fake Lipila treasury balance in integer ngwee.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.mobileMoneyTreasuryBalance} ${snapshot.treasury.mobileMoneyBalanceZmwMinor}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.treasuryReserved,
+      "Reserved deterministic fake destination liquidity by bounded asset.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.treasuryReserved}${labels({ asset: "BTC" })} ${snapshot.treasury.reservedBtcSats}`,
+      `${METRIC_NAMES.treasuryReserved}${labels({ asset: "ZMW" })} ${snapshot.treasury.reservedZmwMinor}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.treasuryUnsettledLiability,
+      "Unsettled fake bridge liabilities by bounded asset.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.treasuryUnsettledLiability}${labels({ asset: "BTC" })} ${snapshot.treasury.unsettledBtcLiabilitySats}`,
+      `${METRIC_NAMES.treasuryUnsettledLiability}${labels({ asset: "ZMW" })} ${snapshot.treasury.unsettledZmwLiabilityMinor}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.treasuryPipeline,
+      "Fake bridge transactions by bounded operational stage.",
+      "gauge",
+    );
+    for (const [stage, value] of [
+      ["awaiting_source_payment", snapshot.treasury.waitingSourcePayment],
+      ["awaiting_destination_settlement", snapshot.treasury.waitingDestinationSettlement],
+      ["refund_required", snapshot.treasury.refundRequired],
+      ["manual_review", snapshot.treasury.manualReview],
+    ] as const) {
+      lines.push(`${METRIC_NAMES.treasuryPipeline}${labels({ stage })} ${value}`);
+    }
+    metric(
+      lines,
+      METRIC_NAMES.reconciliationLastSuccess,
+      "Unix timestamp of the last successful deterministic fake reconciliation.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.reconciliationLastSuccess} ${
+        snapshot.treasury.lastSuccessfulReconciliationAt
+          ? snapshot.treasury.lastSuccessfulReconciliationAt.getTime() / 1_000
+          : 0
+      }`,
+    );
 
     return `${lines.join("\n")}\n`;
   }

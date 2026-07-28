@@ -12,11 +12,11 @@ export async function registerInternalHealth(
       await reader.readOperationalSnapshot(new Date());
       return {
         buildCommit: config.NTUMBA_BUILD_COMMIT,
+        bitcoinLiquidityRail: config.BITCOIN_LIQUIDITY_RAIL_MODE,
+        bridgeEngine: config.BRIDGE_ENGINE_MODE,
         database: "available",
         jobs: config.JOBS_ENABLED ? "enabled" : "disabled",
-        lightningNode: "not_configured",
-        paymentVerification: "not_configured",
-        providerMode: config.SETTLEMENT_PROVIDER_MODE,
+        mobileMoneyLiquidityRail: config.MOBILE_MONEY_LIQUIDITY_RAIL_MODE,
         publicRequestStore: "development_non_durable",
         rateMode: config.RATE_PROVIDER_MODE,
         service: "ntumba-operator",

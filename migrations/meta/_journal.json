@@ -15,6 +15,13 @@
       "when": 1785225591568,
       "tag": "0001_moaning_ser_duncan",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785264688567,
+      "tag": "0002_serious_morph",
+      "breakpoints": true
     }
   ]
 }

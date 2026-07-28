@@ -22,17 +22,28 @@
   quick guide, plus a single-column mobile disclosure. First-visit state is stored as a local-only
   boolean and resets with all other local Ntumba data.
 - Destination-free quote contracts and integer-only quote arithmetic.
-- Provider-direct settlement contract with safe deterministic fake.
-- HMAC-signed fake-provider callback endpoint with five-minute timestamp tolerance, raw-body
+- Hybrid operator-liquidity boundaries for Bitcoin/mobile-money rails, integer rates, inventory,
+  coordination, destination recovery, journal and reconciliation.
+- Disabled-by-default deterministic fake Voltage/LND and fake Lipila treasuries with balance,
+  capacity, availability and success/failure/timeout/unknown simulation.
+- Explicit source/destination state machine with reservation-before-collection,
+  source-before-destination, distinct leg idempotency, no duplicate settlement, manual review and
+  refund-required invariants.
+- Development-only in-memory expiring destination vault that returns opaque tokens and deletes
+  terminal/expired values.
+- HMAC-signed fake-treasury callback endpoint with five-minute timestamp tolerance, raw-body
   verification, intent/amount/asset matching and replay-safe append-only normalized event storage.
-- Payload-free provider-intent outbox staged atomically with each bridge intent, with safe attempt
+- Payload-free source-intent outbox staged atomically with each bridge intent, with safe attempt
   metadata, idempotent client-assisted retry and transactional completion of opaque provider data.
 - Separate direct-Lightning contract that preserves merchant-owned invoices.
 - PostgreSQL quote/payment-intent adapter containing only safe operational fields.
+- Forward-only treasury schema for bridge legs, reservations, obligations/attempts, append-only
+  balanced journal entries, reconciliation and refunds.
 - Normalized provider-event schema with no raw callback body.
 - Expiry/purge timestamps, opportunistic purge and hourly pg-boss purge job.
-- Disabled-by-default separate internal Fastify listener with bearer-protected aggregate health and
-  Prometheus metrics, registered-route HTTP labels and explicit fake/unavailable rail states.
+- Disabled-by-default separate internal Fastify listener with bearer-protected aggregate health,
+  fake treasury balance/capacity/reservation/liability/pipeline/reconciliation Prometheus metrics,
+  registered-route labels and explicit fake/unavailable rail states.
 - Opt-in Compose `ops` profile with version-pinned private Prometheus, conservative alert rules and
   a provisioned read-only **Ntumba Operator** Grafana dashboard bound to host loopback only.
 - Clean development migration baseline replacing the obsolete recipient/payout schema.
@@ -40,7 +51,7 @@
   the complete repository check and Chromium Playwright coverage.
 - Automated weekly/push/pull-request security workflow with a high-severity full dependency audit
   and redacted full-history secret scanning under read-only repository permissions.
-- Focused non-custodial architecture checks and unit/API/web tests.
+- Focused hybrid-custody, privacy, migration, treasury and observability checks.
 - Playwright coverage for creation, sharing, payer choice, expiry, direct-payment wording,
   local settings/clear-data behavior, storage fallback and mobile/desktop layouts.
 - Review screenshots under `artifacts/ui-review/` at 390×844 CSS pixels (Pixel 7 device scale)
@@ -49,10 +60,12 @@
 ## Not implemented
 
 - Live, freshness-checked BTC/ZMW rates.
-- Any live settlement provider.
+- Voltage or Lipila integration, credentials or network calls.
+- Any live liquidity rail, mainnet transaction or real fund movement.
 - Provider-event processing, status polling and reconciliation that advance persisted states.
-- Autonomous provider-intent outbox dispatch. It requires a provider-issued opaque destination
-  token; raw or encrypted merchant destinations remain forbidden in server persistence.
+- Durable coordinator persistence and autonomous source/destination processing. Production
+  destination recovery requires provider tokenization or a reviewed short-lived envelope-encrypted
+  store.
 - Live Lightning-address resolution or merchant-wallet settlement verification.
 - Independently verifiable direct-payment receipts.
 - Durable, multi-instance public request storage. The current opaque public request store is
@@ -60,7 +73,8 @@
 - Capability discovery from live providers. Fake-provider request options are prepared when the
   merchant creates the request and refreshed when the customer selects one.
 - Production retention decision, legal/provider review or deployment.
-- Live read-only Lightning/provider-capacity adapters, real-money alerts, operator write controls
+- Durable destination storage, real reconciliation, automated refunds, live treasury/rate circuit
+  breakers, real-money alerts, operator write controls
   or a public status page.
 
-No real funds should be used. The fake provider's checkout URL uses the reserved `.invalid` domain.
+No real funds should be used. Fake treasury checkout URLs use reserved `.invalid` domains.

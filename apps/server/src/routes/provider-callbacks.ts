@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { NtumbaMetrics } from "@ntumba/observability";
-import { ProviderCallbackVerificationError, type SettlementProvider } from "@ntumba/providers";
+import { type BridgeEventVerifier, ProviderCallbackVerificationError } from "@ntumba/providers";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { purgeWithMetrics } from "../observability.js";
@@ -9,7 +9,7 @@ import type { PaymentStore, StoredQuote } from "../payment-store.js";
 const callbackResponseSchema = z.object({ status: z.enum(["accepted", "duplicate"]) });
 
 function callbackMatchesQuote(
-  callback: Awaited<ReturnType<SettlementProvider["verifyCallback"]>>,
+  callback: Awaited<ReturnType<BridgeEventVerifier["verifyCallback"]>>,
   quote: StoredQuote,
 ): boolean {
   if (callback.direction === "btc_to_zmw") {
@@ -32,7 +32,7 @@ function callbackMatchesQuote(
 }
 
 export function providerCallbackRoutes(
-  settlementProvider: SettlementProvider,
+  bridgeEventVerifier: BridgeEventVerifier,
   store: PaymentStore,
   metrics?: NtumbaMetrics,
 ): FastifyPluginAsyncZod {
@@ -58,9 +58,9 @@ export function providerCallbackRoutes(
           throw app.httpErrors.badRequest("The callback body must be JSON.");
         }
 
-        let callback: Awaited<ReturnType<SettlementProvider["verifyCallback"]>>;
+        let callback: Awaited<ReturnType<BridgeEventVerifier["verifyCallback"]>>;
         try {
-          callback = await settlementProvider.verifyCallback({
+          callback = await bridgeEventVerifier.verifyCallback({
             headers: request.headers,
             rawBody: request.body,
           });
@@ -75,7 +75,7 @@ export function providerCallbackRoutes(
         const receivedAt = new Date();
         await purgeWithMetrics(store, metrics, "opportunistic", receivedAt);
         const intent = await store.findIntentByProviderReference(
-          "fake",
+          "fake_treasury",
           callback.providerReference,
         );
         if (!intent) {
@@ -98,7 +98,7 @@ export function providerCallbackRoutes(
           payloadHash: callback.payloadHash,
           paymentIntentId: intent.id,
           processedAt: null,
-          provider: "fake",
+          provider: "fake_treasury",
           providerEventId: callback.eventId,
           purgeAt: intent.purgeAt,
           receivedAt,

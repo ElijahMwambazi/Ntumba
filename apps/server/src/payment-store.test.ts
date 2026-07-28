@@ -63,7 +63,7 @@ describe("payment store retention", () => {
     await store.recordProviderIntentFailure(intent.id, "PROVIDER_REQUEST_FAILED", now);
     await store.appendProviderEvent({
       id: "26a4370a-5839-462b-b158-e30071b40bf7",
-      normalizedStatus: "collecting",
+      normalizedStatus: "source_pending",
       occurredAt: now,
       payloadHash: "a".repeat(64),
       paymentIntentId: intent.id,
@@ -84,8 +84,11 @@ describe("payment store retention", () => {
       retained: { events: 1, intents: 1, outbox: 1, quotes: 1 },
       unprocessedProviderEvents: 1,
     });
-    expect(JSON.stringify(snapshot)).not.toContain(intent.id);
-    expect(JSON.stringify(snapshot)).not.toContain(intent.idempotencyKey);
+    const serialized = JSON.stringify(snapshot, (_key, value) =>
+      typeof value === "bigint" ? value.toString() : value,
+    );
+    expect(serialized).not.toContain(intent.id);
+    expect(serialized).not.toContain(intent.idempotencyKey);
   });
 
   it("purges due operational records without retaining a destination", async () => {
@@ -113,7 +116,7 @@ describe("payment store retention", () => {
       providerReference: "opaque",
       purgeAt: new Date("2026-07-27T11:01:00.000Z"),
       quoteId: quote.quoteId,
-      status: "provider_collecting",
+      status: "awaiting_source_payment",
       updatedAt: new Date("2026-07-27T10:00:00.000Z"),
     });
 
@@ -132,7 +135,7 @@ describe("payment store retention", () => {
     const store = new InMemoryPaymentStore();
     const event: StoredProviderEvent = {
       id: "26a4370a-5839-462b-b158-e30071b40bf7",
-      normalizedStatus: "settling",
+      normalizedStatus: "destination_processing",
       occurredAt: new Date("2026-07-27T10:00:10.000Z"),
       payloadHash: "a".repeat(64),
       paymentIntentId: "14c9fd48-b2b4-436a-989c-f540122c8dad",
@@ -228,7 +231,7 @@ describe("payment store retention", () => {
       }),
     ).resolves.toMatchObject({
       providerReference: "opaque-provider-reference",
-      status: "provider_collecting",
+      status: "awaiting_source_payment",
     });
     const completedOutbox = await store.getProviderIntentOutbox(intent.id);
     expect(completedOutbox).toMatchObject({

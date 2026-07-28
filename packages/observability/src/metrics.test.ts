@@ -5,9 +5,11 @@ import { fakeProviderCapacityStatus, unavailableLightningStatus } from "./status
 
 function metrics() {
   return new NtumbaMetrics({
+    bitcoinRailMode: "fake",
+    bridgeMode: "fake",
     buildCommit: "2990f1b",
     jobsEnabled: true,
-    providerMode: "fake",
+    mobileMoneyRailMode: "fake",
     publicRequestStore: "development_non_durable",
     rateMode: "fake",
     startedAt: new Date("2026-07-28T10:00:00.000Z"),
@@ -66,12 +68,59 @@ describe("private operational metrics", () => {
     expect(output).toContain('category="other_safe_failure"');
   });
 
-  it("reports fake rails and missing read-only adapters explicitly", () => {
+  it("reports fake treasury liquidity and bounded pipeline stages without identifiers", () => {
+    const snapshot = emptyOperationalSnapshot();
+    snapshot.treasury = {
+      bitcoinBalanceSats: 4_000_000n,
+      inboundCapacitySats: 8_000_000n,
+      lastSuccessfulReconciliationAt: new Date("2026-07-28T11:00:00.000Z"),
+      lightningAvailable: true,
+      manualReview: 1,
+      mobileMoneyAvailable: true,
+      mobileMoneyBalanceZmwMinor: 3_000_000n,
+      outboundCapacitySats: 3_500_000n,
+      refundRequired: 2,
+      reservedBtcSats: 50_000n,
+      reservedZmwMinor: 75_000n,
+      unsettledBtcLiabilitySats: 25_000n,
+      unsettledZmwLiabilityMinor: 40_000n,
+      waitingDestinationSettlement: 3,
+      waitingSourcePayment: 4,
+    };
+    const output = metrics().render(snapshot, true);
+
+    expect(output).toContain("ntumba_fake_lightning_node_available 1");
+    expect(output).toContain("ntumba_fake_bitcoin_treasury_balance_sats 4000000");
+    expect(output).toContain("ntumba_fake_lightning_inbound_capacity_sats 8000000");
+    expect(output).toContain("ntumba_fake_lightning_outbound_capacity_sats 3500000");
+    expect(output).toContain("ntumba_fake_lipila_available 1");
+    expect(output).toContain("ntumba_fake_lipila_treasury_balance_zmw_minor 3000000");
+    expect(output).toContain('ntumba_treasury_reserved{asset="BTC"} 50000');
+    expect(output).toContain('ntumba_treasury_reserved{asset="ZMW"} 75000');
+    expect(output).toContain('ntumba_treasury_unsettled_liability{asset="BTC"} 25000');
+    expect(output).toContain('ntumba_treasury_unsettled_liability{asset="ZMW"} 40000');
+    expect(output).toContain(
+      'ntumba_treasury_pipeline_transactions{stage="awaiting_source_payment"} 4',
+    );
+    expect(output).toContain(
+      'ntumba_treasury_pipeline_transactions{stage="awaiting_destination_settlement"} 3',
+    );
+    expect(output).toContain('ntumba_treasury_pipeline_transactions{stage="refund_required"} 2');
+    expect(output).toContain('ntumba_treasury_pipeline_transactions{stage="manual_review"} 1');
+    expect(output).toContain("ntumba_reconciliation_last_success_timestamp_seconds 1785236400");
+    expect(output).not.toMatch(
+      /payment_id=|provider_reference=|phone=|invoice=|destination=|merchant=/,
+    );
+  });
+
+  it("reports fake rails and missing direct-payment verification explicitly", () => {
     const output = metrics().render(emptyOperationalSnapshot(), true);
     expect(output).toContain('direction="btc_to_btc",state="fake_only"} 1');
     expect(output).toContain('direction="btc_to_btc",state="available"} 0');
     expect(output).toContain('direction="btc_to_btc",state="not_configured"} 0');
     expect(output).toContain('direction="btc_to_btc",state="unhealthy"} 0');
+    expect(output).toContain('capability="node",state="fake_only"} 1');
+    expect(output).toContain('capability="payment_verification",state="not_configured"} 1');
     expect(unavailableLightningStatus()).toEqual({
       externalChannelCapacitySats: null,
       inboundCapacitySats: null,

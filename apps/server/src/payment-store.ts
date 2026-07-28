@@ -4,7 +4,7 @@ import {
   type OperationalSnapshotReader,
   safeOutboxFailureCategory,
 } from "@ntumba/observability";
-import type { ProviderPaymentStatus } from "@ntumba/providers";
+import type { BridgeEventStatus } from "@ntumba/providers";
 
 export interface StoredQuote {
   amountZmwMinor: bigint;
@@ -36,7 +36,7 @@ export interface StoredPaymentIntent {
 
 export interface StoredProviderEvent {
   id: string;
-  normalizedStatus: ProviderPaymentStatus;
+  normalizedStatus: BridgeEventStatus;
   occurredAt: Date;
   payloadHash: string;
   paymentIntentId: string;
@@ -216,7 +216,7 @@ export class InMemoryPaymentStore implements PaymentStore {
       destinationToken: completion.destinationToken,
       expiresAt: completion.expiresAt,
       providerReference: completion.providerReference,
-      status: "provider_collecting",
+      status: "awaiting_source_payment",
       updatedAt: completion.updatedAt,
     };
     this.#intents.set(paymentIntentId, completed);
@@ -304,6 +304,23 @@ export class InMemoryPaymentStore implements PaymentStore {
         intents: this.#intents.size,
         outbox: this.#outbox.size,
         quotes: this.#quotes.size,
+      },
+      treasury: {
+        bitcoinBalanceSats: 0n,
+        inboundCapacitySats: 0n,
+        lastSuccessfulReconciliationAt: null,
+        lightningAvailable: false,
+        manualReview: 0,
+        mobileMoneyAvailable: false,
+        mobileMoneyBalanceZmwMinor: 0n,
+        outboundCapacitySats: 0n,
+        refundRequired: 0,
+        reservedBtcSats: 0n,
+        reservedZmwMinor: 0n,
+        unsettledBtcLiabilitySats: 0n,
+        unsettledZmwLiabilityMinor: 0n,
+        waitingDestinationSettlement: 0,
+        waitingSourcePayment: 0,
       },
       unprocessedProviderEvents: pendingEvents.length,
     };

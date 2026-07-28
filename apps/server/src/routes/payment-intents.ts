@@ -9,11 +9,8 @@ import {
 } from "@ntumba/contracts";
 import { createRetentionWindow } from "@ntumba/domain";
 import type { NtumbaMetrics } from "@ntumba/observability";
-import type {
-  DirectLightningProvider,
-  ProviderPaymentIntent,
-  SettlementProvider,
-} from "@ntumba/providers";
+import type { DirectLightningProvider } from "@ntumba/providers";
+import type { BridgeEngine } from "@ntumba/treasury";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { purgeWithMetrics } from "../observability.js";
@@ -24,9 +21,9 @@ import type {
 } from "../payment-store.js";
 
 export interface PaymentRouteDependencies {
+  bridgeEngine: BridgeEngine;
   directLightningProvider: DirectLightningProvider;
   metrics?: NtumbaMetrics | undefined;
-  settlementProvider: SettlementProvider;
   store: PaymentStore;
 }
 
@@ -44,24 +41,46 @@ function createProviderIntentOutbox(
     lastFailureCode: null,
     paymentIntentId: intent.id,
     processedAt: null,
-    provider: "fake",
+    provider: "fake_treasury",
     purgeAt: intent.purgeAt,
     updatedAt: attemptedAt,
   };
 }
 
 async function dispatchProviderIntent(
+  config: NtumbaConfig,
   dependencies: PaymentRouteDependencies,
   input: BridgePaymentIntentRequest,
   stagedIntent: StoredPaymentIntent,
+  quote: NonNullable<Awaited<ReturnType<PaymentStore["getQuote"]>>>,
 ): Promise<{ checkout: CheckoutInstructions; intent: StoredPaymentIntent }> {
-  let providerIntent: ProviderPaymentIntent;
+  if (config.BRIDGE_ENGINE_MODE !== "fake") {
+    throw new Error("The conversion bridge is disabled.");
+  }
+  const sourceAmount =
+    input.direction === "btc_to_zmw" ? quote.payerAmountSats : quote.payerAmountZmwMinor;
+  const destinationAmount =
+    input.direction === "btc_to_zmw" ? quote.merchantAmountZmwMinor : quote.merchantAmountSats;
+  if (sourceAmount === null || destinationAmount === null) {
+    throw new Error("The bridge quote has incomplete integer leg amounts.");
+  }
+  let bridge: Awaited<ReturnType<BridgeEngine["create"]>>;
   try {
-    providerIntent = await dependencies.settlementProvider.createPaymentIntent({
+    bridge = await dependencies.bridgeEngine.create({
+      collectionIdempotencyKey: `collection:${input.idempotencyKey}`,
       destination: input.destination,
+      destinationAmount,
+      destinationAsset: input.direction === "btc_to_zmw" ? "ZMW" : "BTC",
       direction: input.direction,
-      idempotencyKey: input.idempotencyKey,
-      providerQuoteReference: input.quoteId,
+      expiresAt: new Date(
+        Math.min(
+          new Date(quote.response.expiresAt).getTime(),
+          Date.now() + config.SETTLEMENT_DESTINATION_TTL_SECONDS * 1_000,
+        ),
+      ),
+      settlementIdempotencyKey: `settlement:${input.idempotencyKey}`,
+      sourceAmount,
+      sourceAsset: input.direction === "btc_to_zmw" ? "BTC" : "ZMW",
     });
   } catch (error) {
     await dependencies.store.recordProviderIntentFailure(
@@ -73,23 +92,23 @@ async function dispatchProviderIntent(
   }
 
   const intent = await dependencies.store.completeProviderIntent(stagedIntent.id, {
-    destinationToken: providerIntent.destinationToken,
-    expiresAt: providerIntent.expiresAt,
-    providerReference: providerIntent.providerReference,
+    destinationToken: bridge.destinationLookupToken,
+    expiresAt: bridge.expiresAt,
+    providerReference: bridge.sourceReference,
     updatedAt: new Date(),
   });
   if (
-    intent.providerReference !== providerIntent.providerReference ||
-    intent.destinationToken !== providerIntent.destinationToken
+    intent.providerReference !== bridge.sourceReference ||
+    intent.destinationToken !== bridge.destinationLookupToken
   ) {
-    throw new Error("Provider idempotency returned a conflicting payment intent.");
+    throw new Error("Bridge idempotency returned a conflicting source leg.");
   }
 
   return {
     checkout: {
-      checkoutUrl: providerIntent.checkoutUrl,
-      instructions: providerIntent.payerInstructions,
-      providerReference: providerIntent.providerReference,
+      checkoutUrl: bridge.checkoutUrl,
+      instructions: bridge.payerInstructions,
+      providerReference: bridge.sourceReference,
       type: "provider",
     },
     intent,
@@ -124,6 +143,11 @@ export function paymentIntentRoutes(
         }
         if (quote.response.direction !== request.body.direction) {
           throw app.httpErrors.badRequest("The payment direction does not match the quote.");
+        }
+        if (request.body.direction !== "btc_to_btc" && config.BRIDGE_ENGINE_MODE !== "fake") {
+          throw app.httpErrors.serviceUnavailable(
+            "The fake conversion bridge is disabled. Direct Bitcoin remains available.",
+          );
         }
 
         const existing = await dependencies.store.findIntentByIdempotencyKey(
@@ -168,7 +192,13 @@ export function paymentIntentRoutes(
                 createProviderIntentOutbox(intent, attemptedAt),
               );
             }
-            const dispatched = await dispatchProviderIntent(dependencies, request.body, intent);
+            const dispatched = await dispatchProviderIntent(
+              config,
+              dependencies,
+              request.body,
+              intent,
+              quote,
+            );
             checkout = dispatched.checkout;
             intent = dispatched.intent;
           }
@@ -231,7 +261,7 @@ export function paymentIntentRoutes(
             failureCode: null,
             id: paymentIntentId,
             idempotencyKey: request.body.idempotencyKey,
-            provider: "fake",
+            provider: "fake_treasury",
             providerReference: null,
             purgeAt: retention.purgeAt,
             quoteId: quote.response.quoteId,
@@ -250,7 +280,13 @@ export function paymentIntentRoutes(
               "The idempotency key is already bound to another payment request.",
             );
           }
-          const dispatched = await dispatchProviderIntent(dependencies, request.body, intent);
+          const dispatched = await dispatchProviderIntent(
+            config,
+            dependencies,
+            request.body,
+            intent,
+            quote,
+          );
           checkout = dispatched.checkout;
           intent = dispatched.intent;
         }

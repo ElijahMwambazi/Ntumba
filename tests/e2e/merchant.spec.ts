@@ -123,11 +123,11 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
               verification: "unverified",
             }
           : {
-              checkoutUrl: "https://provider.invalid/checkout/fake",
+              checkoutUrl: "https://treasury.invalid/checkout/fake",
               instructions:
                 body.direction === "zmw_to_btc"
-                  ? "Approve the Mobile Money request from the external payment partner."
-                  : "Pay the external payment partner’s Lightning invoice.",
+                  ? "Approve the simulated Lipila mobile-money collection."
+                  : "Pay the simulated operator Lightning invoice.",
               providerReference: `fake-${body.direction}`,
               type: "provider",
             },
@@ -135,7 +135,7 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
         expiresAt: quoted.expiresAt,
         paymentIntentId: intentIds[body.direction],
         quote: quoted,
-        status: direct ? "direct_payment_pending" : "provider_collecting",
+        status: direct ? "direct_payment_pending" : "awaiting_source_payment",
       },
     });
   });
@@ -191,8 +191,8 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
           {
             intent: {
               checkout: {
-                checkoutUrl: "https://provider.invalid/checkout/fake",
-                instructions: "Approve the Mobile Money request from the external payment partner.",
+                checkoutUrl: "https://treasury.invalid/checkout/fake",
+                instructions: "Approve the simulated Lipila mobile-money collection.",
                 providerReference: "fake-zmw-to-btc",
                 type: "provider",
               },
@@ -200,7 +200,7 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
               expiresAt: directQuote.expiresAt,
               paymentIntentId: intentIds.zmw_to_btc,
               quote: quote("zmw_to_btc", "125.00", options.expired),
-              status: "provider_collecting",
+              status: "awaiting_source_payment",
             },
             payerMethod: "ZMW",
           },
@@ -221,7 +221,7 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
         expiresAt: expiresIn(10),
         failureCode: null,
         paymentIntentId: isDirect ? intentIds.btc_to_btc : intentIds.zmw_to_btc,
-        status: isDirect ? "direct_payment_pending" : "provider_collecting",
+        status: isDirect ? "direct_payment_pending" : "awaiting_source_payment",
         updatedAt: new Date().toISOString(),
       },
     });

@@ -58,7 +58,7 @@ groups:
           summary: An operational-data purge failed
 
       - alert: NtumbaManualReviewPresent
-        expr: sum(ntumba_payment_intents{status="manual_review"}) > 0
+        expr: ntumba_treasury_pipeline_transactions{stage="manual_review"} > 0
         for: 5m
         labels:
           severity: warning
@@ -66,12 +66,12 @@ groups:
           summary: A retained payment intent requires manual review
 
       - alert: NtumbaRefundPendingPresent
-        expr: sum(ntumba_payment_intents{status="refund_pending"}) > 0
+        expr: ntumba_treasury_pipeline_transactions{stage="refund_required"} > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: A retained payment intent is refund-pending
+          summary: A fake bridge settlement requires a refund decision
 
       - alert: NtumbaCallbackVerificationFailures
         expr: sum(increase(ntumba_provider_callbacks_total{outcome="rejected",reason=~"signature|timestamp|mismatch|conflict"}[10m])) > 5

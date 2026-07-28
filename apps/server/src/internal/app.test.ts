@@ -13,9 +13,11 @@ afterEach(async () => {
 
 function collector() {
   return new NtumbaMetrics({
+    bitcoinRailMode: "fake",
+    bridgeMode: "disabled",
     buildCommit: "2990f1b",
     jobsEnabled: false,
-    providerMode: "fake",
+    mobileMoneyRailMode: "fake",
     publicRequestStore: "development_non_durable",
     rateMode: "fake",
     startedAt: new Date("2026-07-28T10:00:00.000Z"),
@@ -89,9 +91,10 @@ describe("private operational listener", () => {
     });
     expect(health.statusCode).toBe(200);
     expect(health.json()).toMatchObject({
+      bitcoinLiquidityRail: "fake",
+      bridgeEngine: "disabled",
       database: "available",
-      lightningNode: "not_configured",
-      providerMode: "fake",
+      mobileMoneyLiquidityRail: "fake",
       publicRequestStore: "development_non_durable",
       status: "development_only",
     });

@@ -2,19 +2,24 @@ import "dotenv/config";
 import { loadConfig } from "@ntumba/config";
 import { createDatabase } from "@ntumba/database";
 import { NtumbaMetrics } from "@ntumba/observability";
-import { FakeDirectLightningProvider, FakeSettlementProvider } from "@ntumba/providers";
+import { FakeBridgeEventVerifier, FakeDirectLightningProvider } from "@ntumba/providers";
 import { buildApp } from "./app.js";
 import { buildInternalApp } from "./internal/app.js";
 import { startJobs } from "./jobs.js";
+import { createOperationalSnapshotReader } from "./observability.js";
 import { PostgresPaymentStore } from "./postgres-payment-store.js";
+import { createFakeTreasuryRuntime } from "./treasury.js";
 
 const config = loadConfig();
 const { database, pool } = createDatabase(config.DATABASE_URL);
 const store = new PostgresPaymentStore(database, config);
+const treasury = createFakeTreasuryRuntime(config);
 const metrics = new NtumbaMetrics({
+  bitcoinRailMode: config.BITCOIN_LIQUIDITY_RAIL_MODE,
   buildCommit: config.NTUMBA_BUILD_COMMIT,
+  bridgeMode: config.BRIDGE_ENGINE_MODE,
   jobsEnabled: config.JOBS_ENABLED,
-  providerMode: config.SETTLEMENT_PROVIDER_MODE,
+  mobileMoneyRailMode: config.MOBILE_MONEY_LIQUIDITY_RAIL_MODE,
   publicRequestStore: "development_non_durable",
   rateMode: config.RATE_PROVIDER_MODE,
   startedAt: new Date(),
@@ -23,17 +28,21 @@ const app = await buildApp(
   config,
   {
     directLightningProvider: new FakeDirectLightningProvider(),
-    metrics,
-    settlementProvider: new FakeSettlementProvider({
+    bridgeEngine: treasury.bridgeEngine,
+    bridgeEventVerifier: new FakeBridgeEventVerifier({
       callbackSecret: config.FAKE_PROVIDER_CALLBACK_SECRET,
     }),
+    metrics,
     store,
   },
   undefined,
   metrics,
 );
 
-const internalApp = config.OPS_ENABLED ? await buildInternalApp(config, metrics, store) : null;
+const operationalReader = createOperationalSnapshotReader(store, treasury.bridgeEngine);
+const internalApp = config.OPS_ENABLED
+  ? await buildInternalApp(config, metrics, operationalReader)
+  : null;
 
 app.addHook("onClose", async () => {
   await pool.end();

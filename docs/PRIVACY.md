@@ -20,26 +20,38 @@ status; it asks the user to reconnect for fresh provider confirmation.
 ## Transient server processing
 
 During intent creation the API can see the merchant mobile number, Lightning address or invoice in
-memory and sends it to the selected provider adapter. It does not write those values to PostgreSQL
-or application logs. For ZMW → BTC, the provider—not Ntumba—collects payer mobile details.
+memory. The fake coordinator places it in a development-only in-memory
+`SettlementDestinationVault` with strict expiry and uses only an opaque lookup token elsewhere.
+The vault deletes the value after terminal settlement, confirmed source failure or expiry. It does
+not write or log the destination.
+
+Production automatic settlement requires either provider-issued opaque beneficiary tokenization
+or a reviewed short-lived envelope-encrypted destination store with automatic deletion. The
+current vault is non-durable: if it disappears after source settlement, the intent must enter
+`refund_required` or `manual_review`, never `settled`.
 
 Raw merchant destinations are not placed in route parameters, query strings or URL fragments.
 
 ## Persisted server data
 
 - Opaque payment-intent and quote IDs.
-- Opaque provider reference and destination token.
+- Opaque source/destination references and destination-vault token.
 - Direction, asset identifiers and integer ngwee/satoshi amounts.
-- Idempotency key and normalized status.
+- Separate collection/settlement idempotency keys and normalized status.
 - Created, updated, expiry and purge timestamps.
 - Minimal failure code.
 - Provider event ID, payload hash and normalized status.
+- Bridge-leg, liquidity-reservation, settlement/refund obligation and reconciliation safe state.
+- Append-only asset-specific treasury journal transactions with integer debit/credit entries and
+  opaque references.
 
-There are no merchant profiles, raw destinations, invoices, payer phone numbers or raw callbacks.
+There are no merchant profiles, raw destinations, invoices, payer phone numbers, raw callbacks,
+wallet credentials, macaroons or API keys.
 
 ## Private operational metrics
 
-The optional internal listener exposes aggregate counts and safe process state only. Metrics never
+The optional internal listener exposes aggregate counts, fake treasury balances/capacities,
+reservations/liabilities and safe process state only. Metrics never
 contain merchant names/references, phone numbers, Lightning addresses/invoices, public/local IDs,
 payment-intent IDs, provider references, destination tokens, idempotency keys or callback bodies.
 HTTP labels use registered Fastify route templates rather than raw URLs. Failure and callback
@@ -62,7 +74,9 @@ Development defaults:
 - Payment intents purge one day after expiry.
 - Provider events carry explicit purge timestamps aligned to the associated intent.
 
-API access and an hourly job remove due data. Production values cannot be chosen solely for
+API access and an hourly job remove due operational data. Immutable treasury journal retention is
+not governed by the short-lived intent purge and requires accounting, tax and regulatory review.
+Production values cannot be chosen solely for
 privacy minimization; they require documented reconciliation with provider, dispute, tax,
 accounting and regulatory obligations.
 

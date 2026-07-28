@@ -1,6 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { FakeDirectLightningProvider, FakeSettlementProvider } from "./fakes.js";
+import { FakeBridgeEventVerifier, FakeDirectLightningProvider } from "./fakes.js";
 
 function signCallback(secret: string, timestamp: string, rawBody: Uint8Array): string {
   return `sha256=${createHmac("sha256", secret)
@@ -10,48 +10,11 @@ function signCallback(secret: string, timestamp: string, rawBody: Uint8Array): s
     .digest("hex")}`;
 }
 
-describe("provider-direct fake", () => {
-  it("returns the same opaque provider intent for an idempotency key", async () => {
-    const provider = new FakeSettlementProvider();
-    const input = {
-      destination: {
-        network: "mtn" as const,
-        phone: "0971234567",
-        type: "mobile_money" as const,
-      },
-      direction: "btc_to_zmw" as const,
-      idempotencyKey: "0123456789abcdef",
-      providerQuoteReference: "fake-quote-1",
-    };
-
-    const first = await provider.createPaymentIntent(input);
-    const second = await provider.createPaymentIntent(input);
-
-    expect(first.providerReference).toBe(second.providerReference);
-    expect(first.status).toBe("collecting");
-    expect(first.checkoutUrl).toContain("provider.invalid");
-  });
-
-  it("does not return the transient merchant destination", async () => {
-    const provider = new FakeSettlementProvider();
-    const intent = await provider.createPaymentIntent({
-      destination: {
-        network: "mtn",
-        phone: "0971234567",
-        type: "mobile_money",
-      },
-      direction: "btc_to_zmw",
-      idempotencyKey: "0123456789abcdef",
-      providerQuoteReference: "fake-quote-1",
-    });
-
-    expect(JSON.stringify(intent)).not.toContain("0971234567");
-  });
-
+describe("fake bridge callback verifier", () => {
   it("verifies and normalizes a current HMAC-signed callback", async () => {
     const now = new Date("2026-07-27T20:00:00.000Z");
     const secret = "x".repeat(32);
-    const provider = new FakeSettlementProvider({ callbackSecret: secret, now: () => now });
+    const provider = new FakeBridgeEventVerifier({ callbackSecret: secret, now: () => now });
     const rawBody = Buffer.from(
       JSON.stringify({
         direction: "btc_to_zmw",
@@ -60,7 +23,7 @@ describe("provider-direct fake", () => {
         providerReference: "fake-intent-1",
         settlement: { amount: "10000", asset: "ZMW" },
         source: { amount: "5834", asset: "BTC" },
-        status: "settling",
+        status: "destination_processing",
       }),
     );
     const timestamp = String(Math.floor(now.getTime() / 1_000));
@@ -83,14 +46,14 @@ describe("provider-direct fake", () => {
       settlementAsset: "ZMW",
       sourceAmount: 5_834n,
       sourceAsset: "BTC",
-      status: "settling",
+      status: "destination_processing",
     });
   });
 
   it("rejects tampered and stale signed callbacks", async () => {
     const now = new Date("2026-07-27T20:00:00.000Z");
     const secret = "x".repeat(32);
-    const provider = new FakeSettlementProvider({ callbackSecret: secret, now: () => now });
+    const provider = new FakeBridgeEventVerifier({ callbackSecret: secret, now: () => now });
     const rawBody = Buffer.from('{"eventId":"fake-event-1"}');
     const timestamp = String(Math.floor(now.getTime() / 1_000));
     const signature = signCallback(secret, timestamp, rawBody);
@@ -113,7 +76,9 @@ describe("provider-direct fake", () => {
       }),
     ).rejects.toThrow("Provider callback verification failed");
   });
+});
 
+describe("direct merchant Lightning fake", () => {
   it("passes through a merchant-owned invoice without replacing it", async () => {
     const provider = new FakeDirectLightningProvider();
     const merchantInvoice = "lntb10n1merchantownedinvoice000000";

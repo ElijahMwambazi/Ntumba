@@ -170,7 +170,7 @@ export function CheckoutPage() {
                 <Icon name="shield" />
                 {checkout?.type === "direct_lightning"
                   ? "Bitcoin goes directly to the merchant’s external wallet."
-                  : "An external payment partner collects your payment and pays the merchant directly."}
+                  : "This simulated conversion uses Ntumba-operated source and payout liquidity."}
               </InlineStatus>
 
               {!started ? (
