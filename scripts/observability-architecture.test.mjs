@@ -106,7 +106,7 @@ const dashboardSource = await readFile(
 const dashboard = JSON.parse(dashboardSource);
 assert.equal(dashboard.title, "Ntumba Operator");
 assert.equal(dashboard.editable, false);
-assert.equal(dashboard.panels.filter((panel) => panel.type === "row").length, 7);
+assert.equal(dashboard.panels.filter((panel) => panel.type === "row").length, 8);
 assert.doesNotMatch(dashboardSource, /gradient/i);
 for (const panel of dashboard.panels) {
   assert.ok(!panel.links?.length, `dashboard panel ${panel.id} must not expose action links`);
@@ -118,6 +118,10 @@ for (const metric of [
   "ntumba_fake_lightning_outbound_capacity_sats",
   "ntumba_fake_lipila_available",
   "ntumba_fake_lipila_treasury_balance_zmw_minor",
+  "ntumba_treasury_book_balance",
+  "ntumba_treasury_balance_mismatch",
+  "ntumba_provider_events_dead_lettered",
+  "ntumba_settlement_attempt_outcomes",
   "ntumba_treasury_reserved",
   "ntumba_treasury_unsettled_liability",
   "ntumba_treasury_pipeline_transactions",
