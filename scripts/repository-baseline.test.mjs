@@ -33,6 +33,18 @@ const lockfiles = await findLockfiles(root.pathname);
 assert.equal(lockfiles.length, 1, `expected one lockfile, found: ${lockfiles.join(", ")}`);
 assert.ok(lockfiles[0]?.endsWith("yarn.lock"), "the sole lockfile must be yarn.lock");
 
+const dockerfile = await readFile(new URL("../Dockerfile", import.meta.url), "utf8");
+assert.equal(
+  dockerfile.match(/RUN corepack enable/g)?.length,
+  2,
+  "Corepack must be enabled in both Docker build and runtime stages",
+);
+assert.match(
+  dockerfile,
+  /COPY --from=build \/root\/\.cache\/node\/corepack \/root\/\.cache\/node\/corepack/,
+  "The runtime image must reuse the pinned Yarn downloaded by the build stage",
+);
+
 const ciWorkflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 assert.match(ciWorkflow, /actions\/checkout@v6/);
 assert.match(ciWorkflow, /actions\/setup-node@v6/);
