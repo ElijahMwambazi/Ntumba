@@ -48,6 +48,17 @@ Payment safety, privacy, recoverability and operator clarity are product feature
 - Provider-event application and destination finalization must commit state, obligations,
   reservation changes, journal entries and outbox completion atomically. External rail calls stay
   outside database transactions and always reuse the original leg idempotency key.
+- Treasury opening balances are inserted once; current book balances are durable inventory, never
+  runtime configuration. Journal insertion and the matching inventory credit/debit are one
+  transaction, and reservations lock the applicable inventory row.
+- A conclusive late source settlement is always credited exactly once. Expired or conclusively
+  failed sources create one refund obligation; only the reviewed late-source path may leave those
+  otherwise terminal states.
+- Operational retention is obligation-aware. Never purge unresolved events, leases, reservations,
+  reconciliation review, destination work, manual review or refund liabilities, and never purge
+  the immutable treasury journal through the short-lived operational job.
+- Destination delivery keeps one stable external idempotency key and append-only numbered
+  transport events. Only conclusive failure may be retried; timeout/unknown remains manual review.
 - The destination vault remains intentionally non-durable. If it is missing after source value has
   settled, create one durable refund obligation and enter `refund_required`; never persist the raw
   destination to avoid that outcome.

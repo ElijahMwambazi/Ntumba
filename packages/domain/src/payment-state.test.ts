@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { assertTransition, canTransition } from "./payment-state.js";
+import {
+  assertLateSourceSettlementTransition,
+  assertTransition,
+  canTransition,
+} from "./payment-state.js";
 
 describe("payment transitions", () => {
   it("models source collection and destination settlement as separate legs", () => {
@@ -35,5 +39,16 @@ describe("payment transitions", () => {
     expect(canTransition("refund_required", "refund_pending")).toBe(true);
     expect(canTransition("refund_pending", "refunded")).toBe(true);
     expect(canTransition("destination_settlement_processing", "manual_review")).toBe(true);
+  });
+
+  it("keeps the late-source exception narrow", () => {
+    expect(() => assertLateSourceSettlementTransition("expired", "refund_required")).not.toThrow();
+    expect(() =>
+      assertLateSourceSettlementTransition("manual_review", "destination_settlement_queued"),
+    ).not.toThrow();
+    expect(() => assertLateSourceSettlementTransition("settled", "refund_required")).toThrow(
+      "Illegal late source settlement transition",
+    );
+    expect(canTransition("expired", "refund_required")).toBe(false);
   });
 });

@@ -86,6 +86,13 @@ export const settlementAttemptOutcome = pgEnum("settlement_attempt_outcome", [
   "timeout",
   "unknown",
 ]);
+export const settlementAttemptEventKind = pgEnum("settlement_attempt_event_kind", [
+  "started",
+  "succeeded",
+  "failed",
+  "timeout",
+  "unknown",
+]);
 export const treasuryJournalSide = pgEnum("treasury_journal_side", ["debit", "credit"]);
 export const treasuryJournalKind = pgEnum("treasury_journal_kind", [
   "source_collection",
@@ -203,13 +210,32 @@ export const providerEvents = pgTable(
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
+    processingAttemptCount: integer("processing_attempt_count").default(0).notNull(),
+    nextProcessingAt: timestamp("next_processing_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastProcessingFailureCode: text("last_processing_failure_code"),
+    deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
     purgeAt: timestamp("purge_at", { withTimezone: true }).notNull(),
   },
   (table) => [
     uniqueIndex("provider_events_provider_event_uidx").on(table.provider, table.providerEventId),
+    index("provider_events_processing_idx").on(
+      table.processedAt,
+      table.deadLetteredAt,
+      table.nextProcessingAt,
+      table.receivedAt,
+    ),
     index("provider_events_purge_at_idx").on(table.purgeAt),
   ],
 );
+
+export const treasuryInventoryPositions = pgTable("treasury_inventory_positions", {
+  asset: paymentAsset("asset").primaryKey(),
+  openingBalance: bigint("opening_balance", { mode: "bigint" }).notNull(),
+  currentBalance: bigint("current_balance", { mode: "bigint" }).notNull(),
+  ...timestamps,
+});
 
 export const bridgeSettlements = pgTable(
   "bridge_settlements",
@@ -350,6 +376,35 @@ export const settlementAttempts = pgTable(
     ),
     uniqueIndex("settlement_attempts_idempotency_uidx").on(table.idempotencyKey),
     index("settlement_attempts_purge_at_idx").on(table.purgeAt),
+  ],
+);
+
+export const settlementAttemptEvents = pgTable(
+  "settlement_attempt_events",
+  {
+    id: uuid("id").primaryKey(),
+    settlementAttemptId: uuid("settlement_attempt_id")
+      .notNull()
+      .references(() => settlementAttempts.id),
+    attemptNumber: integer("attempt_number").notNull(),
+    kind: settlementAttemptEventKind("kind").notNull(),
+    opaqueReference: text("opaque_reference"),
+    failureCode: text("failure_code"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    purgeAt: timestamp("purge_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("settlement_attempt_events_kind_uidx").on(
+      table.settlementAttemptId,
+      table.attemptNumber,
+      table.kind,
+    ),
+    index("settlement_attempt_events_attempt_idx").on(
+      table.settlementAttemptId,
+      table.attemptNumber,
+    ),
+    index("settlement_attempt_events_purge_at_idx").on(table.purgeAt),
   ],
 );
 

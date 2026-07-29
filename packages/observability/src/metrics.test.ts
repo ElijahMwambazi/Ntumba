@@ -71,9 +71,14 @@ describe("private operational metrics", () => {
   it("reports fake treasury liquidity and bounded pipeline stages without identifiers", () => {
     const snapshot = emptyOperationalSnapshot();
     snapshot.treasury = {
+      activeWorkerLeases: 2,
       bitcoinBalanceSats: 4_000_000n,
+      bookBtcBalanceSats: 3_999_999n,
+      bookZmwBalanceMinor: 3_000_000n,
+      deadLetteredProviderEvents: 1,
       inboundCapacitySats: 8_000_000n,
       lastSuccessfulReconciliationAt: new Date("2026-07-28T11:00:00.000Z"),
+      lateSourceSettlements: 1,
       lightningAvailable: true,
       manualReview: 1,
       reconciliationReviewRequired: 1,
@@ -81,12 +86,18 @@ describe("private operational metrics", () => {
       mobileMoneyBalanceZmwMinor: 3_000_000n,
       outboundCapacitySats: 3_500_000n,
       refundRequired: 2,
+      retainedRefundLiabilityBtcSats: 20_000n,
+      retainedRefundLiabilityZmwMinor: 30_000n,
       reservedBtcSats: 50_000n,
       reservedZmwMinor: 75_000n,
       unsettledBtcLiabilitySats: 25_000n,
       unsettledZmwLiabilityMinor: 40_000n,
       waitingDestinationSettlement: 3,
       waitingSourcePayment: 4,
+      settlementAttemptFailed: 2,
+      settlementAttemptSucceeded: 5,
+      settlementAttemptTimeout: 1,
+      settlementAttemptUnknown: 1,
     };
     const output = metrics().render(snapshot, true);
 
@@ -96,6 +107,13 @@ describe("private operational metrics", () => {
     expect(output).toContain("ntumba_fake_lightning_outbound_capacity_sats 3500000");
     expect(output).toContain("ntumba_fake_lipila_available 1");
     expect(output).toContain("ntumba_fake_lipila_treasury_balance_zmw_minor 3000000");
+    expect(output).toContain('ntumba_treasury_book_balance{asset="BTC"} 3999999');
+    expect(output).toContain('ntumba_treasury_balance_mismatch{asset="BTC"} 1');
+    expect(output).toContain("ntumba_provider_events_dead_lettered 1");
+    expect(output).toContain("ntumba_treasury_active_worker_leases 2");
+    expect(output).toContain("ntumba_late_source_settlements 1");
+    expect(output).toContain('ntumba_treasury_refund_liability{asset="BTC"} 20000');
+    expect(output).toContain('ntumba_settlement_attempt_outcomes{outcome="succeeded"} 5');
     expect(output).toContain('ntumba_treasury_reserved{asset="BTC"} 50000');
     expect(output).toContain('ntumba_treasury_reserved{asset="ZMW"} 75000');
     expect(output).toContain('ntumba_treasury_unsettled_liability{asset="BTC"} 25000');
@@ -150,6 +168,8 @@ describe("private operational metrics", () => {
     });
     const snapshot = emptyOperationalSnapshot();
     snapshot.treasury.bitcoinBalanceSats = 99n;
+    snapshot.treasury.bookBtcBalanceSats = 95n;
+    snapshot.treasury.bookZmwBalanceMinor = 94n;
     snapshot.treasury.inboundCapacitySats = 98n;
     snapshot.treasury.outboundCapacitySats = 97n;
     snapshot.treasury.lightningAvailable = true;
@@ -164,6 +184,8 @@ describe("private operational metrics", () => {
     expect(output).toContain("ntumba_fake_bitcoin_treasury_balance_sats 0");
     expect(output).toContain("ntumba_fake_lipila_available 0");
     expect(output).toContain("ntumba_fake_lipila_treasury_balance_zmw_minor 0");
+    expect(output).toContain('ntumba_treasury_book_balance{asset="BTC"} 0');
+    expect(output).toContain('ntumba_treasury_balance_mismatch{asset="BTC"} 0');
   });
 
   it("updates callback and purge metrics with bounded labels", () => {

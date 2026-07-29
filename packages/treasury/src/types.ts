@@ -191,16 +191,27 @@ export interface BridgeEngine {
 }
 
 export interface TreasuryOperationalStatus {
+  activeWorkerLeases: number;
   bitcoin: BitcoinTreasuryStatus;
+  bookBtcBalanceSats: bigint;
+  bookZmwBalanceMinor: bigint;
+  deadLetteredProviderEvents: number;
   lastSuccessfulReconciliationAt: Date | null;
+  lateSourceSettlements: number;
   manualReview: number;
   reconciliationReviewRequired: number;
   mobileMoney: MobileMoneyTreasuryStatus;
   refundRequired: number;
+  retainedRefundLiabilityBtcSats: bigint;
+  retainedRefundLiabilityZmwMinor: bigint;
   reservedBtcSats: bigint;
   reservedZmwMinor: bigint;
   unsettledBtcLiabilitySats: bigint;
   unsettledZmwLiabilityMinor: bigint;
   waitingDestinationSettlement: number;
   waitingSourcePayment: number;
+  settlementAttemptFailed: number;
+  settlementAttemptSucceeded: number;
+  settlementAttemptTimeout: number;
+  settlementAttemptUnknown: number;
 }

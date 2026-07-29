@@ -73,6 +73,22 @@ groups:
         annotations:
           summary: A fake bridge settlement requires a refund decision
 
+      - alert: NtumbaTreasuryBalanceMismatch
+        expr: sum(ntumba_treasury_balance_mismatch) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Durable book and fake provider-reported treasury balances differ
+
+      - alert: NtumbaProviderEventDeadLettered
+        expr: ntumba_provider_events_dead_lettered > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A normalized provider event was isolated for manual review
+
       - alert: NtumbaCallbackVerificationFailures
         expr: sum(increase(ntumba_provider_callbacks_total{outcome="rejected",reason=~"signature|timestamp|mismatch|conflict"}[10m])) > 5
         for: 2m

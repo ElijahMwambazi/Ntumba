@@ -34,13 +34,19 @@ legs. Merchants still have no Ntumba account, balance, deposit wallet or synchro
 - Payload-free transactional source and leased destination outboxes.
 - Durable PostgreSQL fake settlement saga for bridge legs, reservations, obligations, attempts,
   append-only balanced journal entries, reconciliation review and refund obligations.
+- Durable per-asset book inventory initialized once, transactionally credited/debited with
+  journal movements and protected against concurrent over-reservation.
+- Late-source refund handling, obligation-aware retention, isolated/dead-lettered provider events,
+  bridge-targeted destination claims and append-only numbered delivery-attempt history.
 - Disabled-by-default private operator listener with aggregate Prometheus metrics and a provisioned
   loopback-only Grafana dashboard under the opt-in Compose `ops` profile.
 - Deterministic fake Voltage/LND and fake Lipila adapters only.
 
 No Voltage connection, Lipila connection, live rate, mainnet payment or real funds are supported.
 The fake destination vault is process memory only. Durable accounting and obligations survive a
-restart, but a settled source with a lost destination creates one refund obligation. This is not
+restart, and a settled source with a lost destination or a late settlement after expiry creates
+one refund obligation. Fake provider state can be shared across replacement adapters to test
+provider-side idempotency, but real provider semantics remain unverified. This is not
 production-safe.
 
 ## Requirements

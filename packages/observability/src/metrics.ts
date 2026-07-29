@@ -42,9 +42,14 @@ export interface OperationalSnapshot {
   purgeEligible: Record<OperationalRecordType, number>;
   retained: Record<OperationalRecordType, number>;
   treasury: {
+    activeWorkerLeases: number;
     bitcoinBalanceSats: bigint;
+    bookBtcBalanceSats: bigint;
+    bookZmwBalanceMinor: bigint;
+    deadLetteredProviderEvents: number;
     inboundCapacitySats: bigint;
     lastSuccessfulReconciliationAt: Date | null;
+    lateSourceSettlements: number;
     lightningAvailable: boolean;
     manualReview: number;
     reconciliationReviewRequired: number;
@@ -52,12 +57,18 @@ export interface OperationalSnapshot {
     mobileMoneyBalanceZmwMinor: bigint;
     outboundCapacitySats: bigint;
     refundRequired: number;
+    retainedRefundLiabilityBtcSats: bigint;
+    retainedRefundLiabilityZmwMinor: bigint;
     reservedBtcSats: bigint;
     reservedZmwMinor: bigint;
     unsettledBtcLiabilitySats: bigint;
     unsettledZmwLiabilityMinor: bigint;
     waitingDestinationSettlement: number;
     waitingSourcePayment: number;
+    settlementAttemptFailed: number;
+    settlementAttemptSucceeded: number;
+    settlementAttemptTimeout: number;
+    settlementAttemptUnknown: number;
   };
   unprocessedProviderEvents: number;
 }
@@ -148,9 +159,14 @@ export function emptyOperationalSnapshot(): OperationalSnapshot {
     purgeEligible: { events: 0, intents: 0, outbox: 0, quotes: 0 },
     retained: { events: 0, intents: 0, outbox: 0, quotes: 0 },
     treasury: {
+      activeWorkerLeases: 0,
       bitcoinBalanceSats: 0n,
+      bookBtcBalanceSats: 0n,
+      bookZmwBalanceMinor: 0n,
+      deadLetteredProviderEvents: 0,
       inboundCapacitySats: 0n,
       lastSuccessfulReconciliationAt: null,
+      lateSourceSettlements: 0,
       lightningAvailable: false,
       manualReview: 0,
       reconciliationReviewRequired: 0,
@@ -158,12 +174,18 @@ export function emptyOperationalSnapshot(): OperationalSnapshot {
       mobileMoneyBalanceZmwMinor: 0n,
       outboundCapacitySats: 0n,
       refundRequired: 0,
+      retainedRefundLiabilityBtcSats: 0n,
+      retainedRefundLiabilityZmwMinor: 0n,
       reservedBtcSats: 0n,
       reservedZmwMinor: 0n,
       unsettledBtcLiabilitySats: 0n,
       unsettledZmwLiabilityMinor: 0n,
       waitingDestinationSettlement: 0,
       waitingSourcePayment: 0,
+      settlementAttemptFailed: 0,
+      settlementAttemptSucceeded: 0,
+      settlementAttemptTimeout: 0,
+      settlementAttemptUnknown: 0,
     },
     unprocessedProviderEvents: 0,
   };
@@ -570,6 +592,89 @@ export class NtumbaMetrics {
         fakeTreasuryVisible ? snapshot.treasury.mobileMoneyBalanceZmwMinor : 0
       }`,
     );
+    metric(
+      lines,
+      METRIC_NAMES.treasuryBookBalance,
+      "Durable treasury book balance by bounded asset.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.treasuryBookBalance}${labels({ asset: "BTC" })} ${
+        fakeTreasuryVisible ? snapshot.treasury.bookBtcBalanceSats : 0
+      }`,
+      `${METRIC_NAMES.treasuryBookBalance}${labels({ asset: "ZMW" })} ${
+        fakeTreasuryVisible ? snapshot.treasury.bookZmwBalanceMinor : 0
+      }`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.treasuryBalanceMismatch,
+      "Whether provider-reported and durable book balances differ by bounded asset.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.treasuryBalanceMismatch}${labels({ asset: "BTC" })} ${
+        fakeTreasuryVisible &&
+        snapshot.treasury.bitcoinBalanceSats !== snapshot.treasury.bookBtcBalanceSats
+          ? 1
+          : 0
+      }`,
+      `${METRIC_NAMES.treasuryBalanceMismatch}${labels({ asset: "ZMW" })} ${
+        fakeTreasuryVisible &&
+        snapshot.treasury.mobileMoneyBalanceZmwMinor !== snapshot.treasury.bookZmwBalanceMinor
+          ? 1
+          : 0
+      }`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.providerEventsDeadLettered,
+      "Provider events isolated for privacy-safe operator investigation.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.providerEventsDeadLettered} ${snapshot.treasury.deadLetteredProviderEvents}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.treasuryActiveWorkerLeases,
+      "Active destination worker leases.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.treasuryActiveWorkerLeases} ${snapshot.treasury.activeWorkerLeases}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.sourceSettlementsLate,
+      "Late source settlements retained for refund handling.",
+      "gauge",
+    );
+    lines.push(`${METRIC_NAMES.sourceSettlementsLate} ${snapshot.treasury.lateSourceSettlements}`);
+    metric(
+      lines,
+      METRIC_NAMES.treasuryRefundLiability,
+      "Unresolved refund liabilities by bounded source asset.",
+      "gauge",
+    );
+    lines.push(
+      `${METRIC_NAMES.treasuryRefundLiability}${labels({ asset: "BTC" })} ${snapshot.treasury.retainedRefundLiabilityBtcSats}`,
+      `${METRIC_NAMES.treasuryRefundLiability}${labels({ asset: "ZMW" })} ${snapshot.treasury.retainedRefundLiabilityZmwMinor}`,
+    );
+    metric(
+      lines,
+      METRIC_NAMES.settlementAttemptOutcomes,
+      "Append-only destination transport attempts by bounded terminal outcome.",
+      "gauge",
+    );
+    for (const [outcome, value] of [
+      ["failed", snapshot.treasury.settlementAttemptFailed],
+      ["succeeded", snapshot.treasury.settlementAttemptSucceeded],
+      ["timeout", snapshot.treasury.settlementAttemptTimeout],
+      ["unknown", snapshot.treasury.settlementAttemptUnknown],
+    ] as const) {
+      lines.push(`${METRIC_NAMES.settlementAttemptOutcomes}${labels({ outcome })} ${value}`);
+    }
     metric(
       lines,
       METRIC_NAMES.treasuryReserved,

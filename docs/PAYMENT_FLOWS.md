@@ -7,8 +7,11 @@
 2. Ntumba creates fake-treasury options compatible with the receive asset. The merchant does
    not choose the payer method.
 3. For bridge directions, the server atomically stages the intent, bridge, two legs, destination
-   reservation, waiting obligation and payload-free source outbox. It then places the destination
-   in its development-only vault before preparing source collection outside the transaction.
+   reservation, waiting obligation and payload-free source outbox after locking durable
+   destination inventory. It also checks source-rail availability and applicable Lightning
+   inbound/outbound or mobile-money capacity before presenting checkout. It then places the
+   destination in its development-only vault before preparing source collection outside the
+   transaction.
 4. Collection and settlement use separate idempotency keys. Ntumba stores only opaque
    references/tokens. Conclusive setup failure releases safely; timeout or unknown preserves the
    original collection action in manual review without blind retry.
@@ -77,6 +80,17 @@ The payer's mobile number is collected by the provider, not Ntumba.
 A PostgreSQL worker row-locks an unprocessed event and atomically advances source state, journal,
 obligation, destination outbox and `processed_at`. A leased destination worker records its attempt
 before the fake rail call and transactionally finalizes the result afterward.
+
+If source settlement becomes conclusive after expiry or conclusive source failure, the worker
+journals and credits the source exactly once, creates one refund obligation and never initiates the
+destination. A conclusive settlement after a source-unknown callback may resume destination work
+only while the destination token, reservation and deadline remain valid. Duplicate settled events
+make no second journal, inventory, refund, queue or payment change.
+
+One poisoned event is retried with bounded backoff using a fixed safe failure code. It is then
+dead-lettered for manual review while later unrelated events continue. Destination retries claim
+their requested bridge rather than the global queue, reuse the same external idempotency key and
+append a new numbered transport attempt only after conclusive failure.
 
 ## State model
 

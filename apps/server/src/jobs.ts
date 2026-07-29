@@ -12,6 +12,7 @@ export async function startJobs(
   connectionString: string,
   logger: FastifyBaseLogger,
   bridgeEngine: BridgeEngine,
+  providerFinalityGraceSeconds: number,
   metrics?: NtumbaMetrics,
 ): Promise<RunningJobs> {
   const boss = new PgBoss(connectionString);
@@ -39,7 +40,11 @@ export async function startJobs(
   await boss.schedule("expire-source-payments", "* * * * *", {}, { tz: "Africa/Lusaka" });
   await boss.work("purge-operational-data", async () => {
     try {
-      const purged = await purgeExpiredOperationalData(database, new Date());
+      const purged = await purgeExpiredOperationalData(
+        database,
+        new Date(),
+        providerFinalityGraceSeconds,
+      );
       metrics?.recordPurgeSuccess("job", {
         events: purged.providerEvents,
         intents: purged.paymentIntents,

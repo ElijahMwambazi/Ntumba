@@ -70,3 +70,16 @@ export function assertTransition(from: PaymentStatus, to: PaymentStatus): void {
     throw new Error(`Illegal payment transition: ${from} -> ${to}`);
   }
 }
+
+export function assertLateSourceSettlementTransition(
+  from: PaymentStatus,
+  to: "destination_settlement_queued" | "refund_required",
+): void {
+  const allowed =
+    (from === "manual_review" &&
+      (to === "destination_settlement_queued" || to === "refund_required")) ||
+    ((from === "expired" || from === "source_payment_failed") && to === "refund_required");
+  if (!allowed) {
+    throw new Error(`Illegal late source settlement transition: ${from} -> ${to}`);
+  }
+}

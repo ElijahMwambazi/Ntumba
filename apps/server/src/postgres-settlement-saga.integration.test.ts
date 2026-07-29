@@ -3,20 +3,29 @@ import { resolve } from "node:path";
 import { loadConfig } from "@ntumba/config";
 import {
   bridgeSettlementLegs,
+  bridgeSettlements,
   createDatabase,
+  destinationSettlementOutbox,
+  paymentIntents,
   providerEvents,
+  purgeExpiredOperationalData,
   quotes,
+  refundObligations,
+  settlementAttemptEvents,
   settlementObligations,
+  treasuryInventoryPositions,
   treasuryJournalTransactions,
 } from "@ntumba/database";
 import {
   DeterministicFakeReconciliationService,
   FakeLipilaMobileMoneyTreasury,
+  FakeLipilaRemoteState,
+  FakeVoltageLndRemoteState,
   FakeVoltageLndTreasury,
   InMemorySettlementDestinationVault,
   RepositoryBackedSettlementCoordinator,
 } from "@ntumba/treasury";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgresSettlementSagaRepository } from "./postgres-settlement-saga-repository.js";
@@ -35,8 +44,10 @@ integration("PostgreSQL durable fake settlement saga", () => {
     NODE_ENV: "test",
   });
   const repository = new PostgresSettlementSagaRepository(database, config);
-  const bitcoin = new FakeVoltageLndTreasury();
-  const mobileMoney = new FakeLipilaMobileMoneyTreasury();
+  const bitcoinRemote = new FakeVoltageLndRemoteState();
+  const mobileMoneyRemote = new FakeLipilaRemoteState();
+  const bitcoin = new FakeVoltageLndTreasury(bitcoinRemote);
+  const mobileMoney = new FakeLipilaMobileMoneyTreasury(mobileMoneyRemote);
   const vault = new InMemorySettlementDestinationVault();
   const coordinator = () =>
     new RepositoryBackedSettlementCoordinator({
@@ -83,19 +94,19 @@ integration("PostgreSQL durable fake settlement saga", () => {
     return { id, now };
   }
 
-  async function createBridge(suffix: string) {
+  async function createBridge(suffix: string, destinationAmount = 10_000n) {
     const quote = await seedQuote();
     const intentId = randomUUID();
     return coordinator().create({
       collectionIdempotencyKey: `collection:${suffix}`,
       destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
-      destinationAmount: 10_000n,
+      destinationAmount,
       destinationAsset: "ZMW",
       destinationExpiresAt: new Date(quote.now.getTime() + 300_000),
       direction: "btc_to_zmw",
       intent: {
         createdAt: quote.now,
-        destinationAmount: 10_000n,
+        destinationAmount,
         destinationAsset: "ZMW",
         direction: "btc_to_zmw",
         expiresAt: new Date(quote.now.getTime() + 180_000),
@@ -184,11 +195,12 @@ integration("PostgreSQL durable fake settlement saga", () => {
     expect(await repository.pendingDestinationWork()).toBe(0);
   });
 
-  it("rolls back event application when the obligation is missing", async () => {
+  it("isolates a poisoned event without blocking a later valid event", async () => {
     const created = await createBridge("rollback");
     await database
       .delete(settlementObligations)
       .where(eq(settlementObligations.bridgeSettlementId, created.settlement.id));
+    const receivedAt = new Date();
     await coordinator().appendProviderEvent({
       id: randomUUID(),
       normalizedStatus: "source_settled",
@@ -197,12 +209,24 @@ integration("PostgreSQL durable fake settlement saga", () => {
       provider: "fake_treasury",
       providerEventId: "rollback-event",
       purgeAt: new Date(Date.now() + 86_400_000),
-      receivedAt: new Date(),
+      receivedAt,
       sourceReference: created.sourceReference,
     });
-    await expect(coordinator().processNextProviderEvent()).rejects.toThrow(
-      "destination obligation",
-    );
+    const valid = await createBridge("after-poison");
+    await coordinator().appendProviderEvent({
+      id: randomUUID(),
+      normalizedStatus: "source_settled",
+      occurredAt: new Date(),
+      payloadHash: "after-poison-hash",
+      provider: "fake_treasury",
+      providerEventId: "after-poison-event",
+      purgeAt: new Date(Date.now() + 86_400_000),
+      receivedAt: new Date(receivedAt.getTime() + 1),
+      sourceReference: valid.sourceReference,
+    });
+    expect(
+      (await coordinator().processNextProviderEvent(new Date(receivedAt.getTime() + 1)))?.id,
+    ).toBe(valid.settlement.id);
     const [event] = await database
       .select()
       .from(providerEvents)
@@ -212,8 +236,18 @@ integration("PostgreSQL durable fake settlement saga", () => {
       .from(bridgeSettlementLegs)
       .where(eq(bridgeSettlementLegs.bridgeSettlementId, created.settlement.id));
     expect(event?.processedAt).toBeNull();
+    expect(event?.processingAttemptCount).toBe(1);
+    expect(event?.lastProcessingFailureCode).toBe("EVENT_INVARIANT_MISSING_OBLIGATION");
     expect(sourceLeg?.status).toBe("pending");
     expect((await repository.read(created.settlement.id))?.status).toBe("awaiting_source_payment");
+    await coordinator().processNextProviderEvent(new Date(receivedAt.getTime() + 6_000));
+    await coordinator().processNextProviderEvent(new Date(receivedAt.getTime() + 17_000));
+    const [deadLettered] = await database
+      .select()
+      .from(providerEvents)
+      .where(eq(providerEvents.providerEventId, "rollback-event"));
+    expect(deadLettered?.deadLetteredAt).not.toBeNull();
+    expect(deadLettered?.processingAttemptCount).toBe(3);
     await database
       .delete(providerEvents)
       .where(eq(providerEvents.providerEventId, "rollback-event"));
@@ -222,16 +256,44 @@ integration("PostgreSQL durable fake settlement saga", () => {
   it("replays external success safely and creates one refund after vault loss", async () => {
     const crash = await createBridge("external-crash");
     await coordinator().markSourceOutcome(crash.settlement.id, "settled");
-    const claimed = await repository.claimDestinationSettlement(new Date(), 1);
+    const claimed = await repository.claimDestinationSettlementByBridgeId(
+      crash.settlement.id,
+      new Date(),
+      1,
+    );
     expect(claimed).not.toBeNull();
+    const balanceBefore = (await mobileMoney.readStatus()).availableBalanceZmwMinor;
     await mobileMoney.disburse({
       amountZmwMinor: crash.settlement.destinationAmount,
       destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
       idempotencyKey: crash.settlement.settlementIdempotencyKey,
     });
-    expect((await coordinator().processNextDestination(new Date(Date.now() + 5)))?.status).toBe(
-      "settled",
+    const replacementVault = new InMemorySettlementDestinationVault(
+      () => crash.destinationLookupToken,
     );
+    replacementVault.put(
+      { network: "mtn", phone: "0971234567", type: "mobile_money" },
+      crash.settlement.destinationExpiresAt,
+    );
+    const restartedRepository = new PostgresSettlementSagaRepository(database, config);
+    const restarted = new RepositoryBackedSettlementCoordinator({
+      bitcoin: new FakeVoltageLndTreasury(bitcoinRemote),
+      mobileMoney: new FakeLipilaMobileMoneyTreasury(mobileMoneyRemote),
+      reconciliation: new DeterministicFakeReconciliationService(),
+      repository: restartedRepository,
+      vault: replacementVault,
+    });
+    expect(
+      (await restarted.processDestination(crash.settlement.id, new Date(Date.now() + 5))).status,
+    ).toBe("settled");
+    expect((await mobileMoney.readStatus()).availableBalanceZmwMinor).toBe(
+      balanceBefore - crash.settlement.destinationAmount,
+    );
+    expect(
+      (await repository.readAttemptEvents(crash.settlement.settlementIdempotencyKey)).map(
+        (event) => event.attemptNumber,
+      ),
+    ).toEqual([1, 2, 2]);
 
     const lost = await createBridge("lost-vault");
     await coordinator().markSourceOutcome(lost.settlement.id, "settled");
@@ -242,9 +304,227 @@ integration("PostgreSQL durable fake settlement saga", () => {
       repository,
       vault: new InMemorySettlementDestinationVault(),
     });
-    expect((await restartedWithoutVault.processNextDestination())?.status).toBe("refund_required");
+    expect((await restartedWithoutVault.processDestination(lost.settlement.id)).status).toBe(
+      "refund_required",
+    );
     expect(await repository.refundObligationCount(lost.settlement.id)).toBe(1);
-    expect(await restartedWithoutVault.processNextDestination()).toBeNull();
+    expect(
+      await repository.claimDestinationSettlementByBridgeId(lost.settlement.id, new Date(), 30_000),
+    ).toBeNull();
     expect(await repository.refundObligationCount(lost.settlement.id)).toBe(1);
+  });
+
+  it("persists opening inventory once and protects concurrent durable reservations", async () => {
+    await repository.initializeInventory();
+    const before = await database.select().from(treasuryInventoryPositions);
+    const changedConfig = loadConfig({
+      BRIDGE_ENGINE_MODE: "fake",
+      DATABASE_URL: connectionString,
+      FAKE_BITCOIN_TREASURY_BALANCE_SATS: "1",
+      FAKE_LIPILA_BALANCE_ZMW_MINOR: "1",
+      NODE_ENV: "test",
+    });
+    await new PostgresSettlementSagaRepository(database, changedConfig).initializeInventory();
+    expect(await database.select().from(treasuryInventoryPositions)).toEqual(before);
+
+    const zmw = before.find((item) => item.asset === "ZMW")?.currentBalance ?? 0n;
+    const amount = zmw / 2n + 1n;
+    const reservations = await Promise.allSettled([
+      createBridge("parallel-one", amount),
+      createBridge("parallel-two", amount),
+    ]);
+    expect(reservations.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+    expect(reservations.filter((item) => item.status === "rejected")).toHaveLength(1);
+    await coordinator().expireNextSourcePayment(new Date(Date.now() + 181_000));
+  });
+
+  it("credits late source value once after expiry and creates one refund without destination work", async () => {
+    const created = await createBridge("late-source");
+    const expiry = created.settlement.sourcePaymentExpiresAt;
+    await coordinator().expireNextSourcePayment(expiry);
+    const before = (await repository.readStatus()).bookBtcBalanceSats;
+    expect(
+      (await coordinator().markSourceOutcome(created.settlement.id, "settled", expiry)).status,
+    ).toBe("refund_required");
+    expect((await repository.readStatus()).bookBtcBalanceSats).toBe(
+      before + created.settlement.sourceAmount,
+    );
+    expect(await repository.refundObligationCount(created.settlement.id)).toBe(1);
+    expect(
+      await database
+        .select()
+        .from(destinationSettlementOutbox)
+        .innerJoin(
+          settlementObligations,
+          eq(destinationSettlementOutbox.settlementObligationId, settlementObligations.id),
+        )
+        .where(eq(settlementObligations.bridgeSettlementId, created.settlement.id)),
+    ).toHaveLength(0);
+    await coordinator().markSourceOutcome(
+      created.settlement.id,
+      "settled",
+      new Date(expiry.getTime() + 1),
+    );
+    expect(await repository.refundObligationCount(created.settlement.id)).toBe(1);
+    expect((await repository.readStatus()).bookBtcBalanceSats).toBe(
+      before + created.settlement.sourceAmount,
+    );
+  });
+
+  it("claims targeted work and preserves append-only monotonic transport attempts", async () => {
+    const first = await createBridge("target-first");
+    const second = await createBridge("target-second");
+    await coordinator().markSourceOutcome(first.settlement.id, "settled");
+    await coordinator().markSourceOutcome(second.settlement.id, "settled");
+    expect((await coordinator().processDestination(second.settlement.id)).id).toBe(
+      second.settlement.id,
+    );
+    expect((await repository.read(first.settlement.id))?.status).toBe(
+      "destination_settlement_queued",
+    );
+
+    mobileMoney.queueOutcome("disburse", "failure");
+    expect((await coordinator().processDestination(first.settlement.id)).status).toBe(
+      "destination_settlement_failed",
+    );
+    expect((await coordinator().retryDestination(first.settlement.id)).status).toBe("settled");
+    const history = await repository.readAttemptEvents(first.settlement.settlementIdempotencyKey);
+    expect(history.map((event) => [event.attemptNumber, event.kind])).toEqual([
+      [1, "started"],
+      [1, "failed"],
+      [2, "started"],
+      [2, "succeeded"],
+    ]);
+    const [historicalFailure] = await database
+      .select()
+      .from(settlementAttemptEvents)
+      .where(
+        and(
+          eq(settlementAttemptEvents.settlementAttemptId, history[0]?.settlementAttemptId ?? ""),
+          eq(settlementAttemptEvents.kind, "failed"),
+        ),
+      );
+    await expect(
+      pool.query("update settlement_attempt_events set failure_code = 'CHANGED' where id = $1", [
+        historicalFailure?.id,
+      ]),
+    ).rejects.toThrow(/append-only/);
+  });
+
+  it("retains unresolved financial states and purges only fully resolved terminal sagas", async () => {
+    const manual = await createBridge("retention-manual");
+    await coordinator().markSourceOutcome(manual.settlement.id, "unknown");
+
+    const refund = await createBridge("retention-refund");
+    await coordinator().expireNextSourcePayment(refund.settlement.sourcePaymentExpiresAt);
+    await coordinator().markSourceOutcome(
+      refund.settlement.id,
+      "settled",
+      refund.settlement.sourcePaymentExpiresAt,
+    );
+
+    const pending = await createBridge("retention-refund-pending");
+    await coordinator().expireNextSourcePayment(pending.settlement.sourcePaymentExpiresAt);
+    await coordinator().markSourceOutcome(
+      pending.settlement.id,
+      "settled",
+      pending.settlement.sourcePaymentExpiresAt,
+    );
+    await database
+      .update(refundObligations)
+      .set({ status: "pending" })
+      .where(eq(refundObligations.bridgeSettlementId, pending.settlement.id));
+    await database
+      .update(bridgeSettlements)
+      .set({ status: "refund_pending" })
+      .where(eq(bridgeSettlements.id, pending.settlement.id));
+
+    const processing = await createBridge("retention-processing");
+    await coordinator().markSourceOutcome(processing.settlement.id, "settled");
+    await repository.claimDestinationSettlementByBridgeId(
+      processing.settlement.id,
+      new Date(),
+      60_000,
+    );
+
+    const active = await createBridge("retention-active");
+
+    const review = await createBridge("retention-review");
+    await coordinator().markSourceOutcome(review.settlement.id, "settled");
+    const reviewWork = await repository.claimDestinationSettlementByBridgeId(
+      review.settlement.id,
+      new Date(),
+      30_000,
+    );
+    expect(reviewWork).not.toBeNull();
+    if (reviewWork) {
+      await repository.finalizeDestinationSettlement(
+        reviewWork,
+        {
+          opaqueReference: `review-${randomUUID()}`,
+          outcome: "success",
+          reconciliation: {
+            checkedAt: new Date(),
+            outcome: "mismatch",
+            safeCode: "BOOK_PROVIDER_MISMATCH",
+          },
+        },
+        new Date(),
+      );
+    }
+
+    const terminal = await createBridge("retention-terminal");
+    await coordinator().markSourceOutcome(terminal.settlement.id, "settled");
+    await coordinator().processDestination(terminal.settlement.id);
+    const retainedIds = [
+      manual.settlement.id,
+      refund.settlement.id,
+      pending.settlement.id,
+      processing.settlement.id,
+      active.settlement.id,
+      review.settlement.id,
+    ];
+    const allIds = [...retainedIds, terminal.settlement.id];
+    const old = new Date("2020-01-01T00:00:00.000Z");
+    await database
+      .update(bridgeSettlements)
+      .set({ purgeAt: old, sourcePaymentExpiresAt: old })
+      .where(inArray(bridgeSettlements.id, allIds));
+    await database
+      .update(paymentIntents)
+      .set({ purgeAt: old })
+      .where(
+        inArray(
+          paymentIntents.id,
+          [manual, refund, pending, processing, active, review, terminal].map(
+            (item) => item.settlement.paymentIntentId,
+          ),
+        ),
+      );
+    await purgeExpiredOperationalData(database, new Date(), 60);
+    expect(
+      (
+        await database
+          .select({ id: bridgeSettlements.id })
+          .from(bridgeSettlements)
+          .where(inArray(bridgeSettlements.id, retainedIds))
+      )
+        .map((item) => item.id)
+        .sort(),
+    ).toEqual([...retainedIds].sort());
+    expect(
+      await database
+        .select()
+        .from(bridgeSettlements)
+        .where(eq(bridgeSettlements.id, terminal.settlement.id)),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .select()
+        .from(treasuryJournalTransactions)
+        .where(
+          eq(treasuryJournalTransactions.exchangeGroupId, terminal.settlement.exchangeGroupId),
+        ),
+    ).not.toHaveLength(0);
   });
 });

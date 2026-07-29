@@ -78,6 +78,32 @@ journal, obligation, destination outbox and processed marker. Destination work u
 database lease and creates one durable logical attempt before the fake rail call. Coordinator
 instances hold no authoritative lifecycle state and may be restarted.
 
+`treasury_inventory_positions` persists one opening and one current integer balance per asset.
+Initialization is insert-only: later environment changes cannot rewrite the book. Creation locks
+the destination inventory row and computes spendable value as current balance minus active
+reservations. A newly inserted source journal transaction credits current inventory; a newly
+inserted destination journal transaction debits it. The journal movement, inventory mutation,
+reservation and lifecycle update share one transaction, so duplicates cannot move the book twice.
+Fake-provider balances remain separate external reports; bounded mismatch metrics expose
+differences without rewriting either side.
+
+Conclusive source settlement after expiry or conclusive source failure uses a narrow late-event
+transition: source value is journaled/credited once and one refund obligation is created without
+destination execution. Source-unknown manual review may resume destination work only while its
+opaque destination token, active reservation and destination deadline remain valid; otherwise it
+also creates one refund obligation.
+
+Provider events carry only bounded processing count/time, safe failure code and dead-letter time.
+A failed application rolls back, schedules bounded exponential retry and lets later eligible
+events proceed. The final retry isolates the event and moves a legally transitionable bridge to
+manual review. Destination targeting adds the bridge ID to the same row-lock/lease query used by
+the global worker.
+
+`settlement_attempts` remains the one logical external action and stable idempotency key.
+`settlement_attempt_events` is append-only history: each lease/external call adds a numbered
+`started` event followed by at most one `succeeded`, `failed`, `timeout` or `unknown` event.
+Conclusive failure may create the next number; timeout/unknown does not automatically retry.
+
 ## Direct Lightning
 
 `DirectLightningProvider` prepares an invoice owned by the merchant wallet. A supplied invoice is
@@ -92,8 +118,9 @@ PostgreSQL stores integer amounts, assets, direction, normalized status, separat
 settlement idempotency keys, opaque references/tokens, safe failure code, event ID/hash and
 lifecycle timestamps. It has no merchant profile, destination, invoice or raw callback column.
 
-The forward-only treasury migration adds bridge settlements and source/destination legs, liquidity
-reservations, settlement obligations/attempts, reconciliation results and refund obligations.
+The forward-only treasury migrations add bridge settlements and source/destination legs, liquidity
+reservations, settlement obligations/attempts, reconciliation results, refund obligations,
+durable inventory, provider-event isolation metadata and append-only transport-attempt events.
 Journal transactions are grouped by exchange but balanced independently for BTC and ZMW with
 positive integer debit/credit entries. Deferred triggers reject unbalanced commits, and
 UPDATE/DELETE triggers make journal history append-only.
@@ -142,9 +169,11 @@ for merchant data.
 ## Lifecycle
 
 Quotes, intents and outbox rows have explicit lifecycle timestamps. API access opportunistically
-purges due rows; pg-boss also schedules an hourly purge. Outbox rows and provider events are removed
-before intents, then unreferenced quotes. Development defaults retain an expired intent for one day
-and an expired quote for one hour.
+purges due rows; pg-boss also schedules an hourly purge. A due bridge is eligible only when its
+status is terminal, provider-finality grace has passed and no active reservation, unresolved
+obligation/refund, dead letter, event, outbox work, lease or reconciliation-review flag remains.
+Eligible children are deleted in foreign-key order before the bridge, intent and quote. The
+immutable treasury journal is outside ordinary operational purge.
 
 Production retention must be reconciled with provider contracts, disputes, accounting and Zambian
 regulatory obligations before launch.

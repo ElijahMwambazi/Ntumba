@@ -53,4 +53,31 @@ describe("bridge configuration safety", () => {
       }).SETTLEMENT_DESTINATION_TTL_SECONDS,
     ).toBe(240);
   });
+
+  it("bounds provider finality and event-processing retry controls", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "development",
+        PROVIDER_FINALITY_GRACE_SECONDS: "59",
+      }),
+    ).toThrow("Invalid environment configuration");
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "development",
+        PROVIDER_EVENT_MAX_PROCESSING_ATTEMPTS: "11",
+      }),
+    ).toThrow("Invalid environment configuration");
+    expect(
+      loadConfig({
+        NODE_ENV: "development",
+        PROVIDER_EVENT_MAX_PROCESSING_ATTEMPTS: "4",
+        PROVIDER_EVENT_RETRY_BACKOFF_SECONDS: "10",
+        PROVIDER_FINALITY_GRACE_SECONDS: "3600",
+      }),
+    ).toMatchObject({
+      PROVIDER_EVENT_MAX_PROCESSING_ATTEMPTS: 4,
+      PROVIDER_EVENT_RETRY_BACKOFF_SECONDS: 10,
+      PROVIDER_FINALITY_GRACE_SECONDS: 3600,
+    });
+  });
 });

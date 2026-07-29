@@ -80,6 +80,23 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Apply the forward-only durability migration in disposable PostgreSQL and verify constraints,
       journal immutability/balance, rollback and restart scenarios in CI.
 
+## Phase 3.2 — Fund-safety and lifecycle hardening
+
+- [x] Persist opening/current BTC and ZMW inventory, mutate it transactionally with journal
+      movements and prevent concurrent over-reservation.
+- [x] Account for late conclusive source settlements exactly once and create or resume the correct
+      destination/refund obligation without broad terminal-state transitions.
+- [x] Make operational retention preserve every unresolved financial state through a bounded
+      provider-finality grace while leaving the treasury journal untouched.
+- [x] Add bridge-targeted destination claims and isolate poisoned provider events with bounded
+      privacy-safe retry/dead-letter metadata.
+- [x] Preserve a stable external settlement action with append-only numbered transport-attempt
+      events and no automatic retry after timeout/unknown.
+- [x] Separate fake adapter instances from simulated remote-provider state and verify restart
+      replay, vault loss, rail/capacity gates and operator balance-mismatch visibility.
+- [x] Apply and verify the forward-only fund-safety migration and PostgreSQL concurrency,
+      late-event, retention, claim, dead-letter, attempt-history and restart scenarios.
+
 ## Phase 4 — Controlled rail integrations
 
 - [ ] Add a disabled-by-default Voltage MutinyNet adapter using least-privilege LND credentials
@@ -95,13 +112,13 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 
 ## Phase 5 — Cross-rail settlement saga and refunds
 
-- [ ] Persist and transactionally advance both bridge legs, reservations and obligations.
-- [ ] Process verified normalized events without duplicate source credit or destination payment.
-- [ ] Implement expiry, confirmed-failure release, unknown-outcome reconciliation and destination
-      recovery failure handling.
-- [ ] Implement operator-owned refund obligations and reviewed, idempotent refund execution.
+- [ ] Adapt the durable saga to verified Voltage and Lipila state, finality and idempotency
+      semantics.
+- [ ] Add provider-side status polling for callbacks, unknown outcomes and worker recovery.
 - [ ] Replace the development vault with provider-issued opaque beneficiary tokens or a reviewed,
-      short-lived envelope-encrypted store with automatic deletion.
+      short-lived envelope-encrypted store with automatic deletion and production recovery.
+- [ ] Implement reviewed, idempotent real refund execution against verified source-rail semantics.
+- [ ] Implement real provider reconciliation and recovery from provider-specific unknown outcomes.
 
 ## Phase 6 — Automated reconciliation and treasury dashboard
 

@@ -1,10 +1,17 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  BridgeRailUnavailableError,
   BridgeSourceSetupError,
   LiquidityUnavailableError,
   RepositoryBackedSettlementCoordinator,
 } from "./coordinator.js";
-import { FakeLipilaMobileMoneyTreasury, FakeVoltageLndTreasury } from "./fakes.js";
+import {
+  FakeLipilaMobileMoneyTreasury,
+  FakeLipilaRemoteState,
+  FakeVoltageLndRemoteState,
+  FakeVoltageLndTreasury,
+} from "./fakes.js";
 import { DeterministicFakeReconciliationService } from "./reconciliation.js";
 import { InMemorySettlementSagaRepository } from "./repository.js";
 import { InMemorySettlementDestinationVault } from "./vault.js";
@@ -15,22 +22,36 @@ const destinationExpiresAt = new Date("2099-07-28T10:05:00.000Z");
 
 function fixture(
   input: {
+    bitcoin?: {
+      available?: boolean;
+      inboundCapacitySats?: bigint;
+      outboundCapacitySats?: bigint;
+    };
+    mobileAvailable?: boolean;
+    bitcoinRemote?: FakeVoltageLndRemoteState;
+    mobileRemote?: FakeLipilaRemoteState;
     repository?: InMemorySettlementSagaRepository;
     vault?: InMemorySettlementDestinationVault;
     reconciliation?: "matched" | "mismatch" | "unavailable";
     zmw?: bigint;
   } = {},
 ) {
-  const bitcoin = new FakeVoltageLndTreasury({
-    available: true,
-    availableBalanceSats: 1_000_000n,
-    inboundCapacitySats: 2_000_000n,
-    outboundCapacitySats: 1_000_000n,
-  });
-  const mobileMoney = new FakeLipilaMobileMoneyTreasury({
-    available: true,
-    availableBalanceZmwMinor: input.zmw ?? 1_000_000n,
-  });
+  const bitcoinRemote =
+    input.bitcoinRemote ??
+    new FakeVoltageLndRemoteState({
+      available: input.bitcoin?.available ?? true,
+      availableBalanceSats: 1_000_000n,
+      inboundCapacitySats: input.bitcoin?.inboundCapacitySats ?? 2_000_000n,
+      outboundCapacitySats: input.bitcoin?.outboundCapacitySats ?? 1_000_000n,
+    });
+  const mobileRemote =
+    input.mobileRemote ??
+    new FakeLipilaRemoteState({
+      available: input.mobileAvailable ?? true,
+      availableBalanceZmwMinor: input.zmw ?? 1_000_000n,
+    });
+  const bitcoin = new FakeVoltageLndTreasury(bitcoinRemote);
+  const mobileMoney = new FakeLipilaMobileMoneyTreasury(mobileRemote);
   const repository =
     input.repository ??
     new InMemorySettlementSagaRepository({
@@ -46,7 +67,15 @@ function fixture(
     repository,
     vault,
   });
-  return { bitcoin, coordinator, mobileMoney, repository, vault };
+  return {
+    bitcoin,
+    bitcoinRemote,
+    coordinator,
+    mobileMoney,
+    mobileRemote,
+    repository,
+    vault,
+  };
 }
 
 async function createBtcToZmw(coordinator: RepositoryBackedSettlementCoordinator, suffix = "one") {
@@ -63,11 +92,11 @@ async function createBtcToZmw(coordinator: RepositoryBackedSettlementCoordinator
       destinationAsset: "ZMW",
       direction: "btc_to_zmw",
       expiresAt: sourcePaymentExpiresAt,
-      id: "11111111-1111-4111-8111-111111111111",
+      id: identifier(`intent:${suffix}`),
       idempotencyKey: `intent-${suffix}`,
       provider: "fake_treasury",
       purgeAt: new Date("2099-07-29T10:00:00.000Z"),
-      quoteId: "22222222-2222-4222-8222-222222222222",
+      quoteId: identifier(`quote:${suffix}`),
       sourceAmount: 5_834n,
       sourceAsset: "BTC",
     },
@@ -76,6 +105,11 @@ async function createBtcToZmw(coordinator: RepositoryBackedSettlementCoordinator
     sourceAsset: "BTC",
     sourcePaymentExpiresAt,
   });
+}
+
+function identifier(value: string): string {
+  const hex = createHash("sha256").update(value).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 describe("repository-backed fake settlement saga", () => {
@@ -170,8 +204,8 @@ describe("repository-backed fake settlement saga", () => {
     });
 
     const restarted = new RepositoryBackedSettlementCoordinator({
-      bitcoin: first.bitcoin,
-      mobileMoney: first.mobileMoney,
+      bitcoin: new FakeVoltageLndTreasury(first.bitcoinRemote),
+      mobileMoney: new FakeLipilaMobileMoneyTreasury(first.mobileRemote),
       reconciliation: new DeterministicFakeReconciliationService(),
       repository: first.repository,
       vault: first.vault,
@@ -257,6 +291,154 @@ describe("repository-backed fake settlement saga", () => {
     expect((await repository.readObligation(settlement?.id ?? ""))?.status).toBe("manual_review");
   });
 
+  it("credits settled sources and consumes durable destination inventory exactly once", async () => {
+    const { coordinator, repository } = fixture();
+    const created = await createBtcToZmw(coordinator);
+    await coordinator.markSourceOutcome(created.settlement.id, "settled", createdAt);
+    let status = await repository.readStatus();
+    expect(status.bookBtcBalanceSats).toBe(1_005_834n);
+    expect(status.bookZmwBalanceMinor).toBe(1_000_000n);
+
+    await coordinator.processNextDestination(createdAt);
+    status = await repository.readStatus();
+    expect(status.bookBtcBalanceSats).toBe(1_005_834n);
+    expect(status.bookZmwBalanceMinor).toBe(990_000n);
+    expect(await repository.readJournal()).toHaveLength(2);
+  });
+
+  it("accounts for a settled callback after expiry once and creates one refund", async () => {
+    const { coordinator, repository } = fixture();
+    const created = await createBtcToZmw(coordinator);
+    await coordinator.expireNextSourcePayment(sourcePaymentExpiresAt);
+
+    expect(
+      (
+        await coordinator.markSourceOutcome(
+          created.settlement.id,
+          "settled",
+          sourcePaymentExpiresAt,
+        )
+      ).status,
+    ).toBe("refund_required");
+    expect(await repository.refundObligationCount(created.settlement.id)).toBe(1);
+    expect(await repository.pendingDestinationWork()).toBe(0);
+    expect((await repository.readStatus()).bookBtcBalanceSats).toBe(1_005_834n);
+
+    await coordinator.markSourceOutcome(
+      created.settlement.id,
+      "settled",
+      new Date(sourcePaymentExpiresAt.getTime() + 1),
+    );
+    expect(await repository.refundObligationCount(created.settlement.id)).toBe(1);
+    expect(await repository.readJournal()).toHaveLength(1);
+    expect((await repository.readStatus()).bookBtcBalanceSats).toBe(1_005_834n);
+  });
+
+  it("queues a conclusive settled callback after an earlier unknown callback", async () => {
+    const { coordinator, repository } = fixture();
+    const created = await createBtcToZmw(coordinator);
+    expect(
+      (await coordinator.markSourceOutcome(created.settlement.id, "unknown", createdAt)).status,
+    ).toBe("manual_review");
+    expect(
+      (await coordinator.markSourceOutcome(created.settlement.id, "settled", createdAt)).status,
+    ).toBe("destination_settlement_queued");
+    expect(await repository.pendingDestinationWork()).toBe(1);
+    expect(await repository.readJournal()).toHaveLength(1);
+  });
+
+  it("targets only the requested queued destination", async () => {
+    const { coordinator, repository } = fixture();
+    const first = await createBtcToZmw(coordinator, "target-one");
+    const second = await createBtcToZmw(coordinator, "target-two");
+    await coordinator.markSourceOutcome(first.settlement.id, "settled", createdAt);
+    await coordinator.markSourceOutcome(second.settlement.id, "settled", createdAt);
+
+    expect((await coordinator.processDestination(second.settlement.id, createdAt)).id).toBe(
+      second.settlement.id,
+    );
+    expect((await repository.read(first.settlement.id))?.status).toBe(
+      "destination_settlement_queued",
+    );
+  });
+
+  it("preserves monotonic transport history across a conclusive retry", async () => {
+    const { coordinator, mobileMoney, repository } = fixture();
+    const created = await createBtcToZmw(coordinator);
+    await coordinator.markSourceOutcome(created.settlement.id, "settled", createdAt);
+    mobileMoney.queueOutcome("disburse", "failure");
+    expect((await coordinator.processDestination(created.settlement.id, createdAt)).status).toBe(
+      "destination_settlement_failed",
+    );
+    expect((await coordinator.retryDestination(created.settlement.id, createdAt)).status).toBe(
+      "settled",
+    );
+    expect(
+      (await repository.readAttemptEvents(created.settlement.settlementIdempotencyKey)).map(
+        (event) => [event.attemptNumber, event.kind],
+      ),
+    ).toEqual([
+      [1, "started"],
+      [1, "failed"],
+      [2, "started"],
+      [2, "succeeded"],
+    ]);
+    expect(mobileMoney.attemptedDisbursementIdempotencyKeys).toEqual([
+      "settlement-one",
+      "settlement-one",
+    ]);
+  });
+
+  it("does not automatically retry a timed-out transport attempt", async () => {
+    const { coordinator, mobileMoney, repository } = fixture();
+    const created = await createBtcToZmw(coordinator);
+    await coordinator.markSourceOutcome(created.settlement.id, "settled", createdAt);
+    mobileMoney.queueOutcome("disburse", "timeout");
+    await coordinator.processDestination(created.settlement.id, createdAt);
+    expect(await coordinator.processNextDestination(createdAt)).toBeNull();
+    expect(
+      (await repository.readAttemptEvents(created.settlement.settlementIdempotencyKey)).map(
+        (event) => event.kind,
+      ),
+    ).toEqual(["started", "timeout"]);
+  });
+
+  it("prevents concurrent reservations from exceeding durable spendable liquidity", async () => {
+    const { coordinator } = fixture();
+    const createLarge = (suffix: string) => {
+      const input = awaitInput(suffix);
+      return coordinator.create({
+        ...input,
+        destinationAmount: 600_000n,
+        intent: { ...input.intent, destinationAmount: 600_000n },
+      });
+    };
+    const outcomes = await Promise.allSettled([
+      createLarge("parallel-a"),
+      createLarge("parallel-b"),
+    ]);
+    expect(outcomes.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((item) => item.status === "rejected")).toHaveLength(1);
+  });
+
+  it("fails closed on source and destination rail capacity gates", async () => {
+    await expect(
+      createBtcToZmw(fixture({ bitcoin: { inboundCapacitySats: 5_833n } }).coordinator),
+    ).rejects.toBeInstanceOf(BridgeRailUnavailableError);
+    await expect(createBtcToZmw(fixture({ zmw: 9_999n }).coordinator)).rejects.toBeInstanceOf(
+      LiquidityUnavailableError,
+    );
+
+    const unavailableMobile = fixture({ mobileAvailable: false });
+    await expect(
+      unavailableMobile.coordinator.create(zwmToBtcInput("mobile-unavailable")),
+    ).rejects.toBeInstanceOf(BridgeRailUnavailableError);
+    const noOutbound = fixture({ bitcoin: { outboundCapacitySats: 9_999n } });
+    await expect(
+      noOutbound.coordinator.create(zwmToBtcInput("no-outbound")),
+    ).rejects.toBeInstanceOf(LiquidityUnavailableError);
+  });
+
   it("expires only after the separate source-payment deadline", async () => {
     const { coordinator, repository, vault } = fixture();
     const created = await createBtcToZmw(coordinator);
@@ -285,11 +467,11 @@ function awaitInput(suffix: string) {
       destinationAsset: "ZMW" as const,
       direction: "btc_to_zmw" as const,
       expiresAt: sourcePaymentExpiresAt,
-      id: "11111111-1111-4111-8111-111111111111",
+      id: identifier(`intent:${suffix}`),
       idempotencyKey: `intent-${suffix}`,
       provider: "fake_treasury" as const,
       purgeAt: new Date("2099-07-29T10:00:00.000Z"),
-      quoteId: "22222222-2222-4222-8222-222222222222",
+      quoteId: identifier(`quote:${suffix}`),
       sourceAmount: 5_834n,
       sourceAsset: "BTC" as const,
     },
@@ -297,5 +479,22 @@ function awaitInput(suffix: string) {
     sourceAmount: 5_834n,
     sourceAsset: "BTC" as const,
     sourcePaymentExpiresAt,
+  };
+}
+
+function zwmToBtcInput(suffix: string) {
+  const base = awaitInput(suffix);
+  return {
+    ...base,
+    destination: { invoice: "lntb10000n1merchant", type: "lightning_invoice" as const },
+    destinationAsset: "BTC" as const,
+    direction: "zmw_to_btc" as const,
+    intent: {
+      ...base.intent,
+      destinationAsset: "BTC" as const,
+      direction: "zmw_to_btc" as const,
+      sourceAsset: "ZMW" as const,
+    },
+    sourceAsset: "ZMW" as const,
   };
 }

@@ -6,6 +6,10 @@
 - Treasury tests cover repository-backed reservation/release, insufficient liquidity, source-before-destination,
   distinct/reused leg idempotency, duplicate prevention, external uncertainty, asset-specific
   journal balance, refund-required handling and destination-vault expiry/deletion.
+- Fund-safety tests cover durable source credit/destination debit, opening-balance immutability,
+  concurrent reservation locking, late settlement/refund idempotency, rail capacity gates,
+  targeted claims, provider-event isolation/dead letters, numbered attempt history and
+  replacement adapters sharing only simulated remote-provider state.
 - Provider tests cover signed callback normalization/timestamp rejection and direct
   merchant-invoice pass-through.
 - API tests use Fastify injection with an in-memory safe-state repository, including raw callback
@@ -46,8 +50,10 @@ yarn audit:dependencies
 ```
 
 `yarn db:generate` validates the Drizzle model. `yarn test:integration` applies all migrations to a
-disposable PostgreSQL database and validates positive integer checks,
-append-only triggers and deferred per-asset balance enforcement.
+disposable PostgreSQL database and validates positive/nonnegative integer checks, inventory
+locking/mutation, unresolved retention, terminal foreign-key purge order, poisoned-event
+isolation, targeted leases, append-only attempt/journal triggers and deferred per-asset journal
+balance enforcement.
 
 ## Continuous integration
 
@@ -78,6 +84,14 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - A missing destination after source settlement enters refund-required.
 - Coordinator restarts preserve durable creation, normalized events, queued obligations and
   accounting; duplicate callbacks/workers and post-external-success crashes cannot double-apply.
+- Replacement coordinator/repository/fake-adapter instances reuse only PostgreSQL and simulated
+  remote-provider state for provider-idempotency replay; the destination vault is reconstructed or
+  deliberately lost depending on the scenario.
+- Expiry followed by source settlement credits once, creates one refund and never queues
+  destination work; duplicate callbacks change nothing.
+- Old unresolved manual-review, refund-required/pending, processing, reservation and reconciliation
+  records survive purge; only terminal resolved records leave in foreign-key order and journals
+  remain.
 - PostgreSQL tests reject journal mutation, unbalanced commits, zero amounts and duplicate
   mappings, and prove failed event application rolls back journal and obligation changes.
 - Journal transactions balance debit/credit independently for BTC and ZMW.

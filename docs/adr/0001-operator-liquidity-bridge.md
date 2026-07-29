@@ -39,6 +39,11 @@ coordinator restarts are safe. Fake Voltage/LND and
 Lipila adapters contain no network-call path or real credential. No Voltage, Lipila, sandbox,
 mainnet or live configuration mode exists.
 
+Durable inventory is one opening/current position per asset. Opening values are inserted once;
+configuration is not a balance adjustment mechanism. Source/destination journal insertion and
+the corresponding current-balance change are atomic and idempotent. Active reservations subtract
+from current balance when calculating spendable liquidity.
+
 ## Destination handling
 
 Automatic second-leg execution must temporarily recover the destination. The fake coordinator
@@ -67,6 +72,16 @@ failure codes.
   mobile-money liquidity rail; it is not the cross-asset settlement coordinator.
 - A stale rate creates market exposure between source collection and destination settlement.
 - An unknown external result can strand funds and requires reconciliation before any retry.
+- Late conclusive source settlement after expiry or conclusive failure creates an operator refund
+  liability; the source is never silently ignored.
+- Provider and book balances remain independent and may diverge. Bounded mismatch observability
+  requires investigation and never rewrites the book automatically.
+- Ordinary operational retention preserves unresolved obligations, dead letters, leases,
+  reservations and review states through provider-finality grace; the journal has a separate
+  accounting/regulatory retention decision.
+- Shared simulated remote state verifies fake provider-side idempotency across new adapter
+  instances. Real Voltage and Lipila finality/idempotency still require documentation and sandbox
+  evidence.
 - The in-memory destination vault is non-durable and unsuitable for production.
 - Operator-controlled funds require treasury security, separation of read-only and fund-moving
   credentials, reconciliation, capital limits, incident response and auditable refunds.

@@ -40,6 +40,17 @@
 - Repository-backed PostgreSQL saga for bridge legs, reservations, obligations/attempts,
   row-locked provider events, leased destination work, append-only balanced journal entries,
   reconciliation review and exactly-once refund obligations.
+- Durable BTC/ZMW inventory positions whose opening balances are inserted once and whose current
+  balances survive restarts. Source journal insertion credits inventory once; destination journal
+  insertion debits it once; the inventory row serializes reservations.
+- Explicit late-source handling after expiry, conclusive failure or source-unknown manual review,
+  with exactly-once credit and either safe destination queuing or one refund obligation.
+- Financial-state-aware retention that preserves unresolved work, leases, reservations, review
+  flags, dead letters and refund liabilities through a bounded provider-finality grace period.
+- Privacy-safe provider-event retry metadata/dead letters, bridge-targeted destination claims and
+  append-only numbered transport-attempt history under a stable external idempotency key.
+- Replacement fake rail adapters can share simulated remote-provider state for stronger
+  provider-side idempotency restart tests.
 - Normalized provider-event schema with no raw callback body.
 - Expiry/purge timestamps, opportunistic purge and hourly pg-boss purge job.
 - Disabled-by-default separate internal Fastify listener with bearer-protected aggregate health,

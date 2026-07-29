@@ -7,7 +7,8 @@ obligations explicit.
 
 - Bridge disabled by default; deterministic fake Voltage/LND and Lipila treasuries only.
 - PostgreSQL holds short-lived opaque operational records and the authoritative fake settlement
-  saga; coordinator restarts do not lose reservations, obligations, attempts or journal state.
+  saga; coordinator restarts do not lose current book inventory, reservations, obligations,
+  numbered attempt history or journal state.
 - PostgreSQL 18 volumes mount at `/var/lib/postgresql`; volumes from an older major release require
   a reviewed `pg_upgrade` and must never be silently reinitialized.
 - pg-boss runs hourly purge plus PostgreSQL-backed provider-event and destination-settlement
@@ -26,7 +27,10 @@ obligations explicit.
 - Review source/destination failures, refund-required/refund-pending and manual-review intents.
 - Review reconciliation-review-required separately from payment settlement; a mismatch must never
   trigger an automatic second destination payment.
-- Check fake BTC/ZMW available and reserved inventory, unsettled liabilities and pipeline counts.
+- Compare durable BTC/ZMW book balances with provider-reported balances; investigate mismatch
+  without editing the book from configuration or provider output.
+- Check active leases, dead-lettered events, late-source counts, refund liabilities, attempt
+  outcomes, reserved inventory, unsettled liabilities and pipeline counts.
 - Confirm expiry/purge job success and database backups.
 - Check reconciliation freshness, stale rates, rail availability and error/latency alerts.
 
@@ -39,6 +43,17 @@ capital and rate exposure.
 Disable a direction when destination liquidity cannot be reserved, rates are stale, a rail is
 unhealthy, callbacks cannot be verified, reconciliation differs, destination recovery fails,
 purge is failing or failure/manual-review rates exceed thresholds.
+
+## Fund-safety controls
+
+- `PROVIDER_FINALITY_GRACE_SECONDS` is bounded to 60–604800 seconds and defaults to 86400.
+- `PROVIDER_EVENT_MAX_PROCESSING_ATTEMPTS` is bounded to 1–10 and defaults to 3.
+- `PROVIDER_EVENT_RETRY_BACKOFF_SECONDS` is bounded to 1–300 and defaults to 5; retries use a
+  bounded exponential delay.
+- Changing `FAKE_*_BALANCE_*` after inventory initialization does not change durable book value.
+  A reviewed accounting operation—not configuration—is required for a future adjustment.
+- Purge logs include all saga child categories, including transport-attempt events. Records
+  retained for unresolved financial state correctly produce no purge count.
 
 ## Incident priorities
 

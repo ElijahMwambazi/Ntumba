@@ -505,9 +505,14 @@ export class PostgresPaymentStore implements PaymentStore {
         quotes: retainedQuotes,
       },
       treasury: {
+        activeWorkerLeases: 0,
         bitcoinBalanceSats: 0n,
+        bookBtcBalanceSats: 0n,
+        bookZmwBalanceMinor: 0n,
+        deadLetteredProviderEvents: 0,
         inboundCapacitySats: 0n,
         lastSuccessfulReconciliationAt: null,
+        lateSourceSettlements: 0,
         lightningAvailable: false,
         manualReview: 0,
         reconciliationReviewRequired: 0,
@@ -515,12 +520,18 @@ export class PostgresPaymentStore implements PaymentStore {
         mobileMoneyBalanceZmwMinor: 0n,
         outboundCapacitySats: 0n,
         refundRequired: 0,
+        retainedRefundLiabilityBtcSats: 0n,
+        retainedRefundLiabilityZmwMinor: 0n,
         reservedBtcSats: 0n,
         reservedZmwMinor: 0n,
         unsettledBtcLiabilitySats: 0n,
         unsettledZmwLiabilityMinor: 0n,
         waitingDestinationSettlement: 0,
         waitingSourcePayment: 0,
+        settlementAttemptFailed: 0,
+        settlementAttemptSucceeded: 0,
+        settlementAttemptTimeout: 0,
+        settlementAttemptUnknown: 0,
       },
       unprocessedProviderEvents: pendingEventCount[0]?.value ?? 0,
     };
@@ -529,7 +540,11 @@ export class PostgresPaymentStore implements PaymentStore {
   async purgeDue(
     now: Date,
   ): Promise<{ events: number; intents: number; outbox: number; quotes: number }> {
-    const result = await purgeExpiredOperationalData(this.database, now);
+    const result = await purgeExpiredOperationalData(
+      this.database,
+      now,
+      this.config.PROVIDER_FINALITY_GRACE_SECONDS,
+    );
     return {
       events: result.providerEvents,
       intents: result.paymentIntents,

@@ -15,6 +15,7 @@ const config = loadConfig();
 const { database, pool } = createDatabase(config.DATABASE_URL);
 const store = new PostgresPaymentStore(database, config);
 const sagaRepository = new PostgresSettlementSagaRepository(database, config);
+await sagaRepository.initializeInventory();
 const treasury = createFakeTreasuryRuntime(config, sagaRepository);
 const metrics = new NtumbaMetrics({
   bitcoinRailMode: config.BITCOIN_LIQUIDITY_RAIL_MODE,
@@ -51,7 +52,13 @@ app.addHook("onClose", async () => {
 });
 
 if (config.JOBS_ENABLED) {
-  const jobs = await startJobs(config.DATABASE_URL, app.log, treasury.bridgeEngine, metrics);
+  const jobs = await startJobs(
+    config.DATABASE_URL,
+    app.log,
+    treasury.bridgeEngine,
+    config.PROVIDER_FINALITY_GRACE_SECONDS,
+    metrics,
+  );
   app.addHook("onClose", async () => {
     await jobs.stop();
   });

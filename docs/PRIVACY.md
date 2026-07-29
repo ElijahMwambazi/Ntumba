@@ -43,6 +43,8 @@ Raw merchant destinations are not placed in route parameters, query strings or U
 - Minimal failure code.
 - Provider event ID, payload hash and normalized status.
 - Bridge-leg, liquidity-reservation, settlement/refund obligation and reconciliation safe state.
+- Per-asset opening/current book balance; provider-event processing count/time, bounded failure
+  code and dead-letter time; numbered append-only settlement-attempt outcomes.
 - Append-only asset-specific treasury journal transactions with integer debit/credit entries and
   opaque references.
 
@@ -74,9 +76,12 @@ Development defaults:
 - Quotes expire after 60 seconds and purge one hour later.
 - Payment intents purge one day after expiry.
 - Provider events carry explicit purge timestamps aligned to the associated intent.
+- Provider-finality grace is one day and is bounded from one minute to seven days.
 
-API access and an hourly job remove due operational data. Immutable treasury journal retention is
-not governed by the short-lived intent purge and requires accounting, tax and regulatory review.
+API access and an hourly job remove only due, terminal, fully resolved operational data. Old
+timestamps never override unresolved manual review, refund, reconciliation, reservation, event,
+dead-letter or worker-lease state. Immutable treasury journal retention is not governed by the
+short-lived intent purge and requires accounting, tax and regulatory review.
 Production values cannot be chosen solely for
 privacy minimization; they require documented reconciliation with provider, dispute, tax,
 accounting and regulatory obligations.

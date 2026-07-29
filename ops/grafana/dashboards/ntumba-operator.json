@@ -943,6 +943,141 @@
       },
       "title": "Privacy boundary",
       "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 },
+      "id": 43,
+      "panels": [],
+      "title": "8. Fund safety",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 2 },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 10, "x": 0, "y": 54 },
+      "id": 44,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "ntumba_treasury_book_balance",
+          "legendFormat": "book · {{asset}}",
+          "refId": "A"
+        },
+        {
+          "expr": "ntumba_fake_bitcoin_treasury_balance_sats",
+          "legendFormat": "provider · BTC",
+          "refId": "B"
+        },
+        {
+          "expr": "ntumba_fake_lipila_treasury_balance_zmw_minor",
+          "legendFormat": "provider · ZMW",
+          "refId": "C"
+        }
+      ],
+      "title": "Book and provider-reported balances",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 4, "x": 10, "y": 54 },
+      "id": 45,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "sum(ntumba_treasury_balance_mismatch)", "refId": "A" }],
+      "title": "Balance mismatches",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 4, "x": 14, "y": 54 },
+      "id": 46,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [{ "expr": "ntumba_provider_events_dead_lettered", "refId": "A" }],
+      "title": "Dead-lettered events",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "ntumba-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 54 },
+      "id": 47,
+      "options": {
+        "displayMode": "lcd",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "expr": "ntumba_settlement_attempt_outcomes",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Destination attempt outcomes",
+      "type": "bargauge"
     }
   ],
   "refresh": "15s",

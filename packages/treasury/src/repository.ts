@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PaymentDirection } from "@ntumba/contracts";
-import { assertTransition } from "@ntumba/domain";
+import { assertLateSourceSettlementTransition, assertTransition } from "@ntumba/domain";
 import type {
   BridgeSettlement,
   ReconciliationResult,
@@ -74,11 +74,22 @@ export interface StoredSettlementAttempt {
   startedAt: Date;
 }
 
+export interface StoredSettlementAttemptEvent {
+  attemptNumber: number;
+  failureCode: string | null;
+  id: string;
+  kind: "started" | "succeeded" | "failed" | "timeout" | "unknown";
+  occurredAt: Date;
+  opaqueReference: string | null;
+  settlementAttemptId: string;
+}
+
 export interface DestinationSettlementWork {
   attempt: StoredSettlementAttempt;
   destinationLookupToken: string | null;
   leaseToken: string;
   settlement: BridgeSettlement;
+  transportAttemptNumber: number;
 }
 
 export interface NormalizedProviderEventInput {
@@ -133,6 +144,11 @@ export interface ProviderEventRepository {
 
 export interface DestinationSettlementRepository {
   claimDestinationSettlement(now: Date, leaseMs: number): Promise<DestinationSettlementWork | null>;
+  claimDestinationSettlementByBridgeId(
+    settlementId: string,
+    now: Date,
+    leaseMs: number,
+  ): Promise<DestinationSettlementWork | null>;
   finalizeDestinationSettlement(
     work: DestinationSettlementWork,
     result:
@@ -157,6 +173,7 @@ export interface SettlementObligationRepository {
 
 export interface SettlementAttemptRepository {
   readAttempt(idempotencyKey: string): Promise<StoredSettlementAttempt | undefined>;
+  readAttemptEvents(idempotencyKey: string): Promise<readonly StoredSettlementAttemptEvent[]>;
 }
 
 export interface TreasuryJournalRepository {
@@ -176,16 +193,27 @@ export interface DestinationSettlementOutboxRepository {
 }
 
 export interface SettlementRepositoryStatus {
+  activeWorkerLeases: number;
+  bookBtcBalanceSats: bigint;
+  bookZmwBalanceMinor: bigint;
+  deadLetteredProviderEvents: number;
   lastSuccessfulReconciliationAt: Date | null;
+  lateSourceSettlements: number;
   manualReview: number;
   reconciliationReviewRequired: number;
   refundRequired: number;
+  retainedRefundLiabilityBtcSats: bigint;
+  retainedRefundLiabilityZmwMinor: bigint;
   reservedBtcSats: bigint;
   reservedZmwMinor: bigint;
   unsettledBtcLiabilitySats: bigint;
   unsettledZmwLiabilityMinor: bigint;
   waitingDestinationSettlement: number;
   waitingSourcePayment: number;
+  settlementAttemptFailed: number;
+  settlementAttemptSucceeded: number;
+  settlementAttemptTimeout: number;
+  settlementAttemptUnknown: number;
 }
 
 export interface SettlementSagaRepository
@@ -199,11 +227,16 @@ export interface SettlementSagaRepository
     ReconciliationResultRepository,
     RefundObligationRepository,
     DestinationSettlementOutboxRepository {
+  initializeInventory(): Promise<void>;
   readStatus(): Promise<SettlementRepositoryStatus>;
 }
 
 interface InMemoryEvent extends NormalizedProviderEventInput {
+  deadLetteredAt: Date | null;
+  lastProcessingFailureCode: string | null;
+  nextProcessingAt: Date;
   processedAt: Date | null;
+  processingAttemptCount: number;
 }
 
 interface InMemoryOutbox {
@@ -235,6 +268,7 @@ function sameStage(existing: BridgeSettlement, input: StageBridgeInput): boolean
 
 export class InMemorySettlementSagaRepository implements SettlementSagaRepository {
   readonly #attempts = new Map<string, StoredSettlementAttempt>();
+  readonly #attemptEvents = new Map<string, StoredSettlementAttemptEvent[]>();
   readonly #collectionIndex = new Map<string, string>();
   readonly #events = new Map<string, InMemoryEvent>();
   readonly #journal = new Map<string, TreasuryJournalTransaction>();
@@ -248,14 +282,16 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
   readonly #settlementIndex = new Map<string, string>();
   readonly #settlements = new Map<string, BridgeSettlement>();
   readonly #sourceReferenceIndex = new Map<string, string>();
-  readonly #initialLiquidity: Record<TreasuryAsset, bigint>;
+  readonly #inventory: Record<TreasuryAsset, bigint>;
 
   constructor(initialLiquidity: { BTC: bigint; ZMW: bigint }) {
     if (initialLiquidity.BTC < 0n || initialLiquidity.ZMW < 0n) {
       throw new Error("Initial liquidity cannot be negative.");
     }
-    this.#initialLiquidity = { ...initialLiquidity };
+    this.#inventory = { ...initialLiquidity };
   }
+
+  async initializeInventory(): Promise<void> {}
 
   async stageBridge(
     input: StageBridgeInput,
@@ -288,7 +324,7 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
       .filter((item) => item.asset === input.intent.destinationAsset && item.status === "active")
       .reduce((sum, item) => sum + item.amount, 0n);
     if (
-      this.#initialLiquidity[input.intent.destinationAsset] - reserved <
+      this.#inventory[input.intent.destinationAsset] - reserved <
       input.intent.destinationAmount
     ) {
       throw new Error("Destination liquidity is unavailable.");
@@ -485,7 +521,14 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
         ? "duplicate"
         : "conflict";
     }
-    this.#events.set(key, { ...event, processedAt: null });
+    this.#events.set(key, {
+      ...event,
+      deadLetteredAt: null,
+      lastProcessingFailureCode: null,
+      nextProcessingAt: event.receivedAt,
+      processedAt: null,
+      processingAttemptCount: 0,
+    });
     return "inserted";
   }
 
@@ -513,12 +556,16 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
         this.#legs.set(`${settlementId}:source`, { ...leg, status: "settled" });
         const obligation = this.requiredObligation(settlementId);
         this.#obligations.set(settlementId, { ...obligation, status: "queued" });
-        this.appendJournal(
-          settlement,
-          "source_collection",
-          event.occurredAt,
-          event.sourceReference,
-        );
+        if (
+          this.appendJournal(
+            settlement,
+            "source_collection",
+            event.occurredAt,
+            event.sourceReference,
+          )
+        ) {
+          this.#inventory[settlement.sourceAsset] += settlement.sourceAmount;
+        }
         this.#outbox.set(obligation.id, {
           availableAt: now,
           leaseExpiresAt: null,
@@ -526,6 +573,72 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
           obligationId: obligation.id,
           processedAt: null,
         });
+      } else if (
+        settlement.status === "expired" ||
+        settlement.status === "source_payment_failed" ||
+        (settlement.status === "manual_review" &&
+          (settlement.failureCode === "SOURCE_OUTCOME_UNKNOWN" ||
+            settlement.failureCode === "SOURCE_SETUP_UNCERTAIN"))
+      ) {
+        const reservation = this.requiredReservation(settlementId);
+        const canQueue =
+          settlement.status === "manual_review" &&
+          settlement.destinationLookupToken !== null &&
+          reservation.status === "active" &&
+          settlement.destinationExpiresAt > now;
+        const nextStatus = canQueue ? "destination_settlement_queued" : "refund_required";
+        assertLateSourceSettlementTransition(settlement.status, nextStatus);
+        const late =
+          settlement.status === "expired" || settlement.status === "source_payment_failed";
+        settlement = {
+          ...settlement,
+          failureCode: canQueue
+            ? null
+            : late
+              ? "LATE_SOURCE_SETTLEMENT"
+              : "DESTINATION_UNAVAILABLE",
+          status: nextStatus,
+          updatedAt: now,
+        };
+        const leg = this.requiredLeg(settlementId, "source");
+        this.#legs.set(`${settlementId}:source`, {
+          ...leg,
+          failureCode: null,
+          status: "settled",
+        });
+        if (
+          this.appendJournal(
+            settlement,
+            "source_collection",
+            event.occurredAt,
+            event.sourceReference,
+          )
+        ) {
+          this.#inventory[settlement.sourceAsset] += settlement.sourceAmount;
+        }
+        const obligation = this.requiredObligation(settlementId);
+        if (canQueue) {
+          this.#obligations.set(settlementId, {
+            ...obligation,
+            failureCode: null,
+            status: "queued",
+          });
+          this.#outbox.set(obligation.id, {
+            availableAt: now,
+            leaseExpiresAt: null,
+            leaseToken: null,
+            obligationId: obligation.id,
+            processedAt: null,
+          });
+        } else {
+          this.releaseReservation(settlementId, now);
+          this.#refunds.set(settlement.id, `refund:${settlement.collectionIdempotencyKey}`);
+          this.#obligations.set(settlementId, {
+            ...obligation,
+            failureCode: settlement.failureCode,
+            status: "manual_review",
+          });
+        }
       }
     } else if (
       event.normalizedStatus === "source_pending" ||
@@ -566,13 +679,34 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
     now: Date,
     leaseMs: number,
   ): Promise<DestinationSettlementWork | null> {
+    return this.claimDestinationSettlementInternal(undefined, now, leaseMs);
+  }
+
+  async claimDestinationSettlementByBridgeId(
+    settlementId: string,
+    now: Date,
+    leaseMs: number,
+  ): Promise<DestinationSettlementWork | null> {
+    return this.claimDestinationSettlementInternal(settlementId, now, leaseMs);
+  }
+
+  private async claimDestinationSettlementInternal(
+    requestedSettlementId: string | undefined,
+    now: Date,
+    leaseMs: number,
+  ): Promise<DestinationSettlementWork | null> {
     const candidate = [...this.#outbox.values()]
-      .filter(
-        (item) =>
+      .filter((item) => {
+        const obligation = [...this.#obligations.values()].find(
+          (candidateObligation) => candidateObligation.id === item.obligationId,
+        );
+        return (
           item.processedAt === null &&
           item.availableAt <= now &&
-          (item.leaseExpiresAt === null || item.leaseExpiresAt <= now),
-      )
+          (item.leaseExpiresAt === null || item.leaseExpiresAt <= now) &&
+          (!requestedSettlementId || obligation?.bridgeSettlementId === requestedSettlementId)
+        );
+      })
       .sort((left, right) => left.availableAt.getTime() - right.availableAt.getTime())[0];
     if (!candidate) {
       return null;
@@ -597,6 +731,9 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
     candidate.leaseToken = leaseToken;
     candidate.leaseExpiresAt = new Date(now.getTime() + leaseMs);
     const existingAttempt = this.#attempts.get(settlement.settlementIdempotencyKey);
+    const priorEvents = this.#attemptEvents.get(settlement.settlementIdempotencyKey) ?? [];
+    const transportAttemptNumber =
+      priorEvents.reduce((highest, item) => Math.max(highest, item.attemptNumber), 0) + 1;
     const attempt: StoredSettlementAttempt = existingAttempt
       ? { ...existingAttempt, outcome: "processing", startedAt: now }
       : {
@@ -610,12 +747,20 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
           startedAt: now,
         };
     this.#attempts.set(attempt.idempotencyKey, attempt);
+    priorEvents.push({
+      attemptNumber: transportAttemptNumber,
+      failureCode: null,
+      id: randomUUID(),
+      kind: "started",
+      occurredAt: now,
+      opaqueReference: null,
+      settlementAttemptId: attempt.id,
+    });
+    this.#attemptEvents.set(attempt.idempotencyKey, priorEvents);
     this.#obligations.set(settlement.id, { ...obligation, status: "processing" });
     settlement = {
       ...settlement,
-      settlementAttemptCount: existingAttempt
-        ? settlement.settlementAttemptCount
-        : settlement.settlementAttemptCount + 1,
+      settlementAttemptCount: settlement.settlementAttemptCount + 1,
     };
     this.#settlements.set(settlement.id, settlement);
     return {
@@ -623,6 +768,7 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
       destinationLookupToken: settlement.destinationLookupToken,
       leaseToken,
       settlement,
+      transportAttemptNumber,
     };
   }
 
@@ -652,6 +798,13 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
       if (reservation.status !== "active" && reservation.status !== "committed") {
         throw new Error("Successful settlement has no active liquidity reservation.");
       }
+      const destinationJournalKey = `${settlement.settlementIdempotencyKey}:journal`;
+      if (
+        !this.#journal.has(destinationJournalKey) &&
+        this.#inventory[settlement.destinationAsset] < settlement.destinationAmount
+      ) {
+        throw new Error("Durable destination inventory is unavailable.");
+      }
       this.#reservations.set(settlement.id, { ...reservation, status: "committed" });
       this.#obligations.set(settlement.id, { ...obligation, status: "settled" });
       const leg = this.requiredLeg(settlement.id, "destination");
@@ -666,7 +819,10 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
         opaqueReference: result.opaqueReference,
         outcome: "succeeded",
       });
-      this.appendJournal(settlement, "destination_settlement", now, result.opaqueReference);
+      this.appendAttemptEvent(work, "succeeded", now, result.opaqueReference, null);
+      if (this.appendJournal(settlement, "destination_settlement", now, result.opaqueReference)) {
+        this.#inventory[settlement.destinationAsset] -= settlement.destinationAmount;
+      }
       const reconciliations = this.#reconciliations.get(settlement.id) ?? [];
       reconciliations.push(result.reconciliation);
       this.#reconciliations.set(settlement.id, reconciliations);
@@ -692,6 +848,13 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
         failureCode: result.safeCode,
         outcome: result.outcome === "failure" ? "failed" : result.outcome,
       });
+      this.appendAttemptEvent(
+        work,
+        result.outcome === "failure" ? "failed" : result.outcome,
+        now,
+        null,
+        result.safeCode,
+      );
       this.#obligations.set(settlement.id, {
         ...obligation,
         failureCode: result.safeCode,
@@ -734,6 +897,7 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
         failureCode: "DESTINATION_UNAVAILABLE",
         outcome: "failed",
       });
+      this.appendAttemptEvent(work, "failed", now, null, "DESTINATION_UNAVAILABLE");
     }
     outbox.processedAt = now;
     outbox.leaseExpiresAt = null;
@@ -758,10 +922,7 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
           item.bridgeSettlementId !== settlementId,
       )
       .reduce((sum, item) => sum + item.amount, 0n);
-    if (
-      this.#initialLiquidity[settlement.destinationAsset] - reserved <
-      settlement.destinationAmount
-    ) {
+    if (this.#inventory[settlement.destinationAsset] - reserved < settlement.destinationAmount) {
       return { ...settlement, failureCode: "LIQUIDITY_UNAVAILABLE", updatedAt: now };
     }
     const reservation = this.requiredReservation(settlementId);
@@ -819,6 +980,10 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
     return this.#attempts.get(key);
   }
 
+  async readAttemptEvents(key: string) {
+    return [...(this.#attemptEvents.get(key) ?? [])];
+  }
+
   async readJournal() {
     return [...this.#journal.values()];
   }
@@ -858,12 +1023,34 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
       .flat()
       .filter((item) => item.outcome === "matched")
       .sort((left, right) => right.checkedAt.getTime() - left.checkedAt.getTime())[0];
+    const attemptEvents = [...this.#attemptEvents.values()].flat();
+    const refundSettlements = settlements.filter((item) => this.#refunds.has(item.id));
     return {
+      activeWorkerLeases: [...this.#outbox.values()].filter(
+        (item) =>
+          item.leaseExpiresAt !== null &&
+          item.leaseExpiresAt > new Date() &&
+          item.processedAt === null,
+      ).length,
+      bookBtcBalanceSats: this.#inventory.BTC,
+      bookZmwBalanceMinor: this.#inventory.ZMW,
+      deadLetteredProviderEvents: [...this.#events.values()].filter(
+        (item) => item.deadLetteredAt !== null,
+      ).length,
       lastSuccessfulReconciliationAt: matched?.checkedAt ?? null,
+      lateSourceSettlements: settlements.filter(
+        (item) => item.failureCode === "LATE_SOURCE_SETTLEMENT",
+      ).length,
       manualReview: settlements.filter((item) => item.status === "manual_review").length,
       reconciliationReviewRequired: settlements.filter((item) => item.reconciliationReviewRequired)
         .length,
       refundRequired: settlements.filter((item) => item.status === "refund_required").length,
+      retainedRefundLiabilityBtcSats: refundSettlements
+        .filter((item) => item.sourceAsset === "BTC")
+        .reduce((sum, item) => sum + item.sourceAmount, 0n),
+      retainedRefundLiabilityZmwMinor: refundSettlements
+        .filter((item) => item.sourceAsset === "ZMW")
+        .reduce((sum, item) => sum + item.sourceAmount, 0n),
       reservedBtcSats: reservations
         .filter((item) => item.asset === "BTC")
         .reduce((sum, item) => sum + item.amount, 0n),
@@ -883,6 +1070,10 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
       waitingSourcePayment: settlements.filter((item) =>
         ["awaiting_source_payment", "source_payment_confirming"].includes(item.status),
       ).length,
+      settlementAttemptFailed: attemptEvents.filter((item) => item.kind === "failed").length,
+      settlementAttemptSucceeded: attemptEvents.filter((item) => item.kind === "succeeded").length,
+      settlementAttemptTimeout: attemptEvents.filter((item) => item.kind === "timeout").length,
+      settlementAttemptUnknown: attemptEvents.filter((item) => item.kind === "unknown").length,
     };
   }
 
@@ -891,13 +1082,13 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
     kind: "source_collection" | "destination_settlement",
     occurredAt: Date,
     opaqueReference: string,
-  ) {
+  ): boolean {
     const source = kind === "source_collection";
     const idempotencyKey = `${
       source ? settlement.collectionIdempotencyKey : settlement.settlementIdempotencyKey
     }:journal`;
     if (this.#journal.has(idempotencyKey)) {
-      return;
+      return false;
     }
     const amount = source ? settlement.sourceAmount : settlement.destinationAmount;
     const asset = source ? settlement.sourceAsset : settlement.destinationAsset;
@@ -920,6 +1111,34 @@ export class InMemorySettlementSagaRepository implements SettlementSagaRepositor
       opaqueReference,
     };
     this.#journal.set(idempotencyKey, transaction);
+    return true;
+  }
+
+  private appendAttemptEvent(
+    work: DestinationSettlementWork,
+    kind: Exclude<StoredSettlementAttemptEvent["kind"], "started">,
+    occurredAt: Date,
+    opaqueReference: string | null,
+    failureCode: string | null,
+  ) {
+    const events = this.#attemptEvents.get(work.attempt.idempotencyKey) ?? [];
+    if (
+      events.some(
+        (item) => item.attemptNumber === work.transportAttemptNumber && item.kind !== "started",
+      )
+    ) {
+      return;
+    }
+    events.push({
+      attemptNumber: work.transportAttemptNumber,
+      failureCode,
+      id: randomUUID(),
+      kind,
+      occurredAt,
+      opaqueReference,
+      settlementAttemptId: work.attempt.id,
+    });
+    this.#attemptEvents.set(work.attempt.idempotencyKey, events);
   }
 
   private releaseReservation(settlementId: string, now: Date) {

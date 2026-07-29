@@ -13,6 +13,13 @@
   key; timeout or unknown outcome enters manual review.
 - Each asset-specific journal transaction is append-only and debit/credit balanced. BTC and ZMW
   exchange entries are linked but never falsely balanced against each other.
+- Opening inventory is persisted once. Current inventory, journal movement and reservation
+  mutation are atomic; row locking and nonnegative database constraints prevent over-reservation
+  and negative book balances.
+- Late conclusive source value is never discarded: it is credited once and either resumes a still
+  valid obligation or creates one refund liability without an automatic destination payment.
+- Destination calls keep one external idempotency key while append-only numbered transport events
+  retain failure/timeout/unknown/success history. Timeout and unknown are not automatically retried.
 - Integer-only amounts, short quote expiry and idempotency apply to every request.
 - The bridge is disabled by default. Fake mode is rejected in production and contains no external
   call path or real credentials.
@@ -42,6 +49,15 @@ source settlement creates exactly one durable refund obligation.
   payload hash, normalized status and lifecycle timestamps, never the raw body.
 - Provider reference, direction, source/settlement assets and integer amounts must match the
   original intent and quote before insertion.
+- Internal event failures store only a bounded count, next time, safe code and dead-letter time.
+  Raw exceptions remain absent; poison events cannot block later work and never become success.
+
+## Financial retention
+
+Operational age alone cannot delete a financial obligation. Purge requires a terminal bridge,
+expired retention and provider-finality windows, no active reservation, no unresolved
+settlement/refund, no unprocessed/dead-lettered event, no destination work or lease and no
+reconciliation review. The ordinary purge never deletes treasury journal transactions or entries.
 
 ## Browser data and links
 

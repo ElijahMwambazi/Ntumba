@@ -11,12 +11,14 @@ import {
   providerIntentOutbox,
   reconciliationResults,
   refundObligations,
+  settlementAttemptEvents,
   settlementAttempts,
   settlementObligations,
+  treasuryInventoryPositions,
   treasuryJournalEntries,
   treasuryJournalTransactions,
 } from "@ntumba/database";
-import { assertTransition } from "@ntumba/domain";
+import { assertLateSourceSettlementTransition, assertTransition } from "@ntumba/domain";
 import type {
   BridgeSettlement,
   DestinationSettlementWork,
@@ -27,6 +29,7 @@ import type {
   SettlementSagaRepository,
   StageBridgeInput,
   StoredSettlementAttempt,
+  StoredSettlementAttemptEvent,
   TreasuryAsset,
   TreasuryJournalTransaction,
 } from "@ntumba/treasury";
@@ -113,19 +116,60 @@ function normalizedSourceStatus(
   return status === "failed" || status === "expired" ? "failed" : "unknown";
 }
 
+function safeProviderEventFailureCode(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "EVENT_PROCESSING_INTERNAL";
+  }
+  if (error.message.includes("destination obligation")) {
+    return "EVENT_INVARIANT_MISSING_OBLIGATION";
+  }
+  if (error.message.includes("bridge settlement")) {
+    return "EVENT_INVARIANT_MISSING_BRIDGE";
+  }
+  if (error.message.includes("source mapping")) {
+    return "EVENT_INVARIANT_MISSING_SOURCE";
+  }
+  return "EVENT_PROCESSING_INTERNAL";
+}
+
 export class PostgresSettlementSagaRepository implements SettlementSagaRepository {
   constructor(
     readonly database: NtumbaDatabase,
     readonly config: NtumbaConfig,
   ) {}
 
+  async initializeInventory(): Promise<void> {
+    await this.database
+      .insert(treasuryInventoryPositions)
+      .values([
+        {
+          asset: "BTC",
+          currentBalance: this.config.FAKE_BITCOIN_TREASURY_BALANCE_SATS,
+          openingBalance: this.config.FAKE_BITCOIN_TREASURY_BALANCE_SATS,
+        },
+        {
+          asset: "ZMW",
+          currentBalance: this.config.FAKE_LIPILA_BALANCE_ZMW_MINOR,
+          openingBalance: this.config.FAKE_LIPILA_BALANCE_ZMW_MINOR,
+        },
+      ])
+      .onConflictDoNothing({ target: treasuryInventoryPositions.asset });
+  }
+
   async stageBridge(
     input: StageBridgeInput,
   ): Promise<{ created: boolean; settlement: BridgeSettlement }> {
+    await this.initializeInventory();
     const result = await this.database.transaction(async (transaction) => {
-      await transaction.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${`ntumba:${input.intent.destinationAsset}`}))`,
-      );
+      const [inventory] = await transaction
+        .select()
+        .from(treasuryInventoryPositions)
+        .where(eq(treasuryInventoryPositions.asset, input.intent.destinationAsset))
+        .for("update")
+        .limit(1);
+      if (!inventory) {
+        throw new Error("Durable destination inventory is unavailable.");
+      }
       const [existing] = await transaction
         .select()
         .from(bridgeSettlements)
@@ -158,11 +202,10 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
             eq(liquidityReservations.status, "active"),
           ),
         );
-      const available =
-        input.intent.destinationAsset === "BTC"
-          ? this.config.FAKE_BITCOIN_TREASURY_BALANCE_SATS
-          : this.config.FAKE_LIPILA_BALANCE_ZMW_MINOR;
-      if (available - BigInt(reserved?.value ?? "0") < input.intent.destinationAmount) {
+      if (
+        inventory.currentBalance - BigInt(reserved?.value ?? "0") <
+        input.intent.destinationAmount
+      ) {
         throw new Error("Destination liquidity is unavailable.");
       }
 
@@ -545,7 +588,9 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
         occurredAt: event.occurredAt,
         payloadHash: event.payloadHash,
         paymentIntentId: settlement.paymentIntentId,
+        nextProcessingAt: event.receivedAt,
         processedAt: null,
+        processingAttemptCount: 0,
         provider: event.provider,
         providerEventId: event.providerEventId,
         purgeAt: event.purgeAt,
@@ -575,6 +620,15 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
   }
 
   async processNextProviderEvent(now: Date): Promise<ProviderEventApplication | null> {
+    try {
+      return await this.applyNextProviderEvent(now);
+    } catch (error) {
+      await this.isolateNextProviderEvent(now, safeProviderEventFailureCode(error));
+      return this.processNextProviderEvent(now);
+    }
+  }
+
+  private async applyNextProviderEvent(now: Date): Promise<ProviderEventApplication | null> {
     const result = await this.database.transaction(async (transaction) => {
       const locked = await transaction.execute<{
         id: string;
@@ -585,6 +639,8 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
         select id, normalized_status, occurred_at, payment_intent_id
         from provider_events
         where processed_at is null
+          and dead_lettered_at is null
+          and next_processing_at <= ${now}
         order by received_at
         for update skip locked
         limit 1
@@ -615,6 +671,55 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       if (!sourceLeg?.opaqueReference) {
         throw new Error("Provider event bridge has no opaque source mapping.");
       }
+      const creditSourceExactlyOnce = async () => {
+        const journalId = randomUUID();
+        const insertedJournal = await transaction
+          .insert(treasuryJournalTransactions)
+          .values({
+            asset: bridge.sourceAsset,
+            exchangeGroupId: bridge.exchangeGroupId,
+            id: journalId,
+            idempotencyKey: `${bridge.collectionIdempotencyKey}:journal`,
+            kind: "source_collection",
+            occurredAt: new Date(event.occurred_at),
+            opaqueReference: sourceLeg.opaqueReference,
+          })
+          .onConflictDoNothing({
+            target: treasuryJournalTransactions.idempotencyKey,
+          })
+          .returning({ id: treasuryJournalTransactions.id });
+        if (insertedJournal.length === 0) {
+          return false;
+        }
+        await transaction.insert(treasuryJournalEntries).values([
+          {
+            accountCode: "treasury_asset",
+            amount: bridge.sourceAmount,
+            id: randomUUID(),
+            side: "debit",
+            transactionId: journalId,
+          },
+          {
+            accountCode: "source_collection_clearing",
+            amount: bridge.sourceAmount,
+            id: randomUUID(),
+            side: "credit",
+            transactionId: journalId,
+          },
+        ]);
+        const credited = await transaction
+          .update(treasuryInventoryPositions)
+          .set({
+            currentBalance: sql`${treasuryInventoryPositions.currentBalance} + ${bridge.sourceAmount}`,
+            updatedAt: now,
+          })
+          .where(eq(treasuryInventoryPositions.asset, bridge.sourceAsset))
+          .returning({ asset: treasuryInventoryPositions.asset });
+        if (credited.length !== 1) {
+          throw new Error("Source settlement has no durable inventory position.");
+        }
+        return true;
+      };
       const status = normalizedSourceStatus(event.normalized_status);
       let nextStatus = bridge.status;
       let failureCode = bridge.failureCode;
@@ -639,40 +744,7 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
           if (!obligation) {
             throw new Error("Source settlement has no destination obligation.");
           }
-          const journalId = randomUUID();
-          const insertedJournal = await transaction
-            .insert(treasuryJournalTransactions)
-            .values({
-              asset: bridge.sourceAsset,
-              exchangeGroupId: bridge.exchangeGroupId,
-              id: journalId,
-              idempotencyKey: `${bridge.collectionIdempotencyKey}:journal`,
-              kind: "source_collection",
-              occurredAt: new Date(event.occurred_at),
-              opaqueReference: sourceLeg.opaqueReference,
-            })
-            .onConflictDoNothing({
-              target: treasuryJournalTransactions.idempotencyKey,
-            })
-            .returning({ id: treasuryJournalTransactions.id });
-          if (insertedJournal.length > 0) {
-            await transaction.insert(treasuryJournalEntries).values([
-              {
-                accountCode: "treasury_asset",
-                amount: bridge.sourceAmount,
-                id: randomUUID(),
-                side: "debit",
-                transactionId: journalId,
-              },
-              {
-                accountCode: "source_collection_clearing",
-                amount: bridge.sourceAmount,
-                id: randomUUID(),
-                side: "credit",
-                transactionId: journalId,
-              },
-            ]);
-          }
+          await creditSourceExactlyOnce();
           await transaction
             .insert(destinationSettlementOutbox)
             .values({
@@ -687,6 +759,97 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
             .onConflictDoNothing({
               target: destinationSettlementOutbox.settlementObligationId,
             });
+        } else if (
+          bridge.status === "expired" ||
+          bridge.status === "source_payment_failed" ||
+          (bridge.status === "manual_review" &&
+            (bridge.failureCode === "SOURCE_OUTCOME_UNKNOWN" ||
+              bridge.failureCode === "SOURCE_SETUP_UNCERTAIN"))
+        ) {
+          const [reservation] = await transaction
+            .select()
+            .from(liquidityReservations)
+            .where(eq(liquidityReservations.bridgeSettlementId, bridge.id))
+            .for("update")
+            .limit(1);
+          const canQueue =
+            bridge.status === "manual_review" &&
+            bridge.destinationLookupToken !== null &&
+            reservation?.status === "active" &&
+            bridge.destinationExpiresAt > now;
+          const late = bridge.status === "expired" || bridge.status === "source_payment_failed";
+          nextStatus = canQueue ? "destination_settlement_queued" : "refund_required";
+          failureCode = canQueue
+            ? null
+            : late
+              ? "LATE_SOURCE_SETTLEMENT"
+              : "DESTINATION_UNAVAILABLE";
+          assertLateSourceSettlementTransition(bridge.status, nextStatus);
+          await creditSourceExactlyOnce();
+          await transaction
+            .update(bridgeSettlementLegs)
+            .set({ failureCode: null, status: "settled", updatedAt: now })
+            .where(eq(bridgeSettlementLegs.id, sourceLeg.id));
+          const [obligation] = await transaction
+            .update(settlementObligations)
+            .set({
+              failureCode,
+              status: canQueue ? "queued" : "manual_review",
+              updatedAt: now,
+            })
+            .where(eq(settlementObligations.bridgeSettlementId, bridge.id))
+            .returning();
+          if (!obligation) {
+            throw new Error("Late source settlement has no destination obligation.");
+          }
+          if (canQueue) {
+            await transaction
+              .insert(destinationSettlementOutbox)
+              .values({
+                availableAt: now,
+                createdAt: now,
+                id: randomUUID(),
+                processedAt: null,
+                purgeAt: bridge.purgeAt,
+                settlementObligationId: obligation.id,
+                updatedAt: now,
+              })
+              .onConflictDoUpdate({
+                target: destinationSettlementOutbox.settlementObligationId,
+                set: {
+                  availableAt: now,
+                  leaseExpiresAt: null,
+                  leaseToken: null,
+                  processedAt: null,
+                  updatedAt: now,
+                },
+              });
+          } else {
+            await transaction
+              .update(liquidityReservations)
+              .set({ releasedAt: now, status: "released", updatedAt: now })
+              .where(
+                and(
+                  eq(liquidityReservations.bridgeSettlementId, bridge.id),
+                  eq(liquidityReservations.status, "active"),
+                ),
+              );
+            await transaction
+              .insert(refundObligations)
+              .values({
+                amount: bridge.sourceAmount,
+                asset: bridge.sourceAsset,
+                bridgeSettlementId: bridge.id,
+                createdAt: now,
+                failureCode,
+                id: randomUUID(),
+                idempotencyKey: `refund:${bridge.collectionIdempotencyKey}`,
+                purgeAt: bridge.purgeAt,
+                status: "required",
+                updatedAt: now,
+              })
+              .onConflictDoNothing({ target: refundObligations.bridgeSettlementId });
+          }
         }
       } else if (status === "source_pending" || status === "source_confirming") {
         if (bridge.status === "awaiting_source_payment") {
@@ -755,6 +918,22 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
     now: Date,
     leaseMs: number,
   ): Promise<DestinationSettlementWork | null> {
+    return this.claimDestinationSettlementInternal(null, now, leaseMs);
+  }
+
+  async claimDestinationSettlementByBridgeId(
+    settlementId: string,
+    now: Date,
+    leaseMs: number,
+  ): Promise<DestinationSettlementWork | null> {
+    return this.claimDestinationSettlementInternal(settlementId, now, leaseMs);
+  }
+
+  private async claimDestinationSettlementInternal(
+    requestedSettlementId: string | null,
+    now: Date,
+    leaseMs: number,
+  ): Promise<DestinationSettlementWork | null> {
     const claimed = await this.database.transaction(async (transaction) => {
       const locked = await transaction.execute<{
         bridge_settlement_id: string;
@@ -771,6 +950,8 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
           and o.available_at <= ${now}
           and (o.lease_expires_at is null or o.lease_expires_at <= ${now})
           and so.status in ('queued', 'processing')
+          and (${requestedSettlementId}::uuid is null
+            or so.bridge_settlement_id = ${requestedSettlementId}::uuid)
         order by o.available_at
         for update of o, so skip locked
         limit 1
@@ -857,10 +1038,27 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       if (!attemptRow) {
         throw new Error("Destination settlement attempt was not persisted.");
       }
+      const previousAttemptNumber = await transaction.execute<{ value: number | null }>(sql`
+        select max(attempt_number) as value
+        from settlement_attempt_events
+        where settlement_attempt_id = ${attemptRow.id}
+      `);
+      const transportAttemptNumber = (previousAttemptNumber.rows[0]?.value ?? 0) + 1;
+      await transaction.insert(settlementAttemptEvents).values({
+        attemptNumber: transportAttemptNumber,
+        failureCode: null,
+        id: randomUUID(),
+        kind: "started",
+        occurredAt: now,
+        opaqueReference: null,
+        purgeAt: bridge.purgeAt,
+        settlementAttemptId: attemptRow.id,
+      });
       return {
         attempt: mapAttempt(attemptRow),
         bridgeId: bridge.id,
         leaseToken,
+        transportAttemptNumber,
       };
     });
     if (!claimed) {
@@ -872,6 +1070,7 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       destinationLookupToken: settlement.destinationLookupToken,
       leaseToken: claimed.leaseToken,
       settlement,
+      transportAttemptNumber: claimed.transportAttemptNumber,
     };
   }
 
@@ -950,6 +1149,22 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
               transactionId: journalId,
             },
           ]);
+          const debited = await transaction
+            .update(treasuryInventoryPositions)
+            .set({
+              currentBalance: sql`${treasuryInventoryPositions.currentBalance} - ${bridge.destinationAmount}`,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(treasuryInventoryPositions.asset, bridge.destinationAsset),
+                sql`${treasuryInventoryPositions.currentBalance} >= ${bridge.destinationAmount}`,
+              ),
+            )
+            .returning({ asset: treasuryInventoryPositions.asset });
+          if (debited.length !== 1) {
+            throw new Error("Durable destination inventory is unavailable.");
+          }
         }
         const reviewRequired = result.reconciliation.outcome !== "matched";
         await transaction.insert(reconciliationResults).values({
@@ -996,6 +1211,19 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
           })
           .where(eq(settlementAttempts.id, work.attempt.id));
         await transaction
+          .insert(settlementAttemptEvents)
+          .values({
+            attemptNumber: work.transportAttemptNumber,
+            failureCode: null,
+            id: randomUUID(),
+            kind: "succeeded",
+            occurredAt: now,
+            opaqueReference: result.opaqueReference,
+            purgeAt: bridge.purgeAt,
+            settlementAttemptId: work.attempt.id,
+          })
+          .onConflictDoNothing();
+        await transaction
           .update(bridgeSettlements)
           .set({
             reconciliationReviewRequired: reviewRequired,
@@ -1019,6 +1247,19 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
             outcome: result.outcome === "failure" ? "failed" : result.outcome,
           })
           .where(eq(settlementAttempts.id, work.attempt.id));
+        await transaction
+          .insert(settlementAttemptEvents)
+          .values({
+            attemptNumber: work.transportAttemptNumber,
+            failureCode: result.safeCode,
+            id: randomUUID(),
+            kind: result.outcome === "failure" ? "failed" : result.outcome,
+            occurredAt: now,
+            opaqueReference: null,
+            purgeAt: bridge.purgeAt,
+            settlementAttemptId: work.attempt.id,
+          })
+          .onConflictDoNothing();
         await transaction
           .update(settlementObligations)
           .set({
@@ -1133,6 +1374,19 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
         })
         .where(eq(settlementAttempts.id, work.attempt.id));
       await transaction
+        .insert(settlementAttemptEvents)
+        .values({
+          attemptNumber: work.transportAttemptNumber,
+          failureCode: "DESTINATION_UNAVAILABLE",
+          id: randomUUID(),
+          kind: "failed",
+          occurredAt: now,
+          opaqueReference: null,
+          purgeAt: bridge.purgeAt,
+          settlementAttemptId: work.attempt.id,
+        })
+        .onConflictDoNothing();
+      await transaction
         .update(bridgeSettlements)
         .set({
           failureCode: "DESTINATION_UNAVAILABLE",
@@ -1165,6 +1419,7 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
     settlementId: string,
     now: Date,
   ): Promise<BridgeSettlement> {
+    await this.initializeInventory();
     await this.database.transaction(async (transaction) => {
       await transaction.execute(
         sql`select pg_advisory_xact_lock(hashtext(${`ntumba:retry:${settlementId}`}))`,
@@ -1179,10 +1434,15 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
         throw new Error("Only a conclusively failed destination settlement can be retried.");
       }
       assertTransition(bridge.status, "destination_settlement_queued");
-      const available =
-        bridge.destinationAsset === "BTC"
-          ? this.config.FAKE_BITCOIN_TREASURY_BALANCE_SATS
-          : this.config.FAKE_LIPILA_BALANCE_ZMW_MINOR;
+      const [inventory] = await transaction
+        .select()
+        .from(treasuryInventoryPositions)
+        .where(eq(treasuryInventoryPositions.asset, bridge.destinationAsset))
+        .for("update")
+        .limit(1);
+      if (!inventory) {
+        throw new Error("Durable destination inventory is unavailable.");
+      }
       const [reserved] = await transaction
         .select({ value: sum(liquidityReservations.amount) })
         .from(liquidityReservations)
@@ -1192,7 +1452,7 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
             eq(liquidityReservations.status, "active"),
           ),
         );
-      if (available - BigInt(reserved?.value ?? "0") < bridge.destinationAmount) {
+      if (inventory.currentBalance - BigInt(reserved?.value ?? "0") < bridge.destinationAmount) {
         return;
       }
       await transaction
@@ -1284,12 +1544,21 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
         .limit(1),
       this.database
         .select({ value: count() })
-        .from(settlementAttempts)
+        .from(settlementAttemptEvents)
+        .innerJoin(
+          settlementAttempts,
+          eq(settlementAttemptEvents.settlementAttemptId, settlementAttempts.id),
+        )
         .innerJoin(
           settlementObligations,
           eq(settlementAttempts.settlementObligationId, settlementObligations.id),
         )
-        .where(eq(settlementObligations.bridgeSettlementId, id)),
+        .where(
+          and(
+            eq(settlementObligations.bridgeSettlementId, id),
+            eq(settlementAttemptEvents.kind, "started"),
+          ),
+        ),
     ]);
     return mapSettlement(
       row,
@@ -1343,6 +1612,27 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       .where(eq(settlementAttempts.idempotencyKey, key))
       .limit(1);
     return row ? mapAttempt(row) : undefined;
+  }
+
+  async readAttemptEvents(key: string): Promise<readonly StoredSettlementAttemptEvent[]> {
+    const rows = await this.database
+      .select({
+        attemptNumber: settlementAttemptEvents.attemptNumber,
+        failureCode: settlementAttemptEvents.failureCode,
+        id: settlementAttemptEvents.id,
+        kind: settlementAttemptEvents.kind,
+        occurredAt: settlementAttemptEvents.occurredAt,
+        opaqueReference: settlementAttemptEvents.opaqueReference,
+        settlementAttemptId: settlementAttemptEvents.settlementAttemptId,
+      })
+      .from(settlementAttemptEvents)
+      .innerJoin(
+        settlementAttempts,
+        eq(settlementAttemptEvents.settlementAttemptId, settlementAttempts.id),
+      )
+      .where(eq(settlementAttempts.idempotencyKey, key))
+      .orderBy(asc(settlementAttemptEvents.attemptNumber), asc(settlementAttemptEvents.createdAt));
+    return rows;
   }
 
   async readJournal(): Promise<readonly TreasuryJournalTransaction[]> {
@@ -1403,7 +1693,16 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
   }
 
   async readStatus(): Promise<SettlementRepositoryStatus> {
-    const [rows, reservations, reconciled] = await Promise.all([
+    const [
+      rows,
+      reservations,
+      reconciled,
+      inventory,
+      providerEventRows,
+      outboxRows,
+      refundRows,
+      attemptEventRows,
+    ] = await Promise.all([
       this.database.select().from(bridgeSettlements),
       this.database
         .select()
@@ -1415,6 +1714,21 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
         .where(eq(reconciliationResults.outcome, "matched"))
         .orderBy(desc(reconciliationResults.checkedAt))
         .limit(1),
+      this.database.select().from(treasuryInventoryPositions),
+      this.database
+        .select({
+          deadLetteredAt: providerEvents.deadLetteredAt,
+        })
+        .from(providerEvents),
+      this.database
+        .select({
+          leaseExpiresAt: destinationSettlementOutbox.leaseExpiresAt,
+          leaseToken: destinationSettlementOutbox.leaseToken,
+          processedAt: destinationSettlementOutbox.processedAt,
+        })
+        .from(destinationSettlementOutbox),
+      this.database.select().from(refundObligations),
+      this.database.select({ kind: settlementAttemptEvents.kind }).from(settlementAttemptEvents),
     ]);
     const liability = (asset: TreasuryAsset) =>
       rows
@@ -1430,11 +1744,32 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
             ].includes(item.status),
         )
         .reduce((total, item) => total + item.destinationAmount, 0n);
+    const bookBalance = (asset: TreasuryAsset) =>
+      inventory.find((item) => item.asset === asset)?.currentBalance ?? 0n;
+    const refundLiability = (asset: TreasuryAsset) =>
+      refundRows
+        .filter((item) => item.asset === asset && item.status !== "refunded")
+        .reduce((total, item) => total + item.amount, 0n);
     return {
+      activeWorkerLeases: outboxRows.filter(
+        (item) =>
+          item.processedAt === null &&
+          item.leaseToken !== null &&
+          item.leaseExpiresAt !== null &&
+          item.leaseExpiresAt > new Date(),
+      ).length,
+      bookBtcBalanceSats: bookBalance("BTC"),
+      bookZmwBalanceMinor: bookBalance("ZMW"),
+      deadLetteredProviderEvents: providerEventRows.filter((item) => item.deadLetteredAt !== null)
+        .length,
       lastSuccessfulReconciliationAt: reconciled[0]?.checkedAt ?? null,
+      lateSourceSettlements: rows.filter((item) => item.failureCode === "LATE_SOURCE_SETTLEMENT")
+        .length,
       manualReview: rows.filter((item) => item.status === "manual_review").length,
       reconciliationReviewRequired: rows.filter((item) => item.reconciliationReviewRequired).length,
       refundRequired: rows.filter((item) => item.status === "refund_required").length,
+      retainedRefundLiabilityBtcSats: refundLiability("BTC"),
+      retainedRefundLiabilityZmwMinor: refundLiability("ZMW"),
       reservedBtcSats: reservations
         .filter((item) => item.asset === "BTC")
         .reduce((total, item) => total + item.amount, 0n),
@@ -1454,7 +1789,93 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       waitingSourcePayment: rows.filter((item) =>
         ["awaiting_source_payment", "source_payment_confirming"].includes(item.status),
       ).length,
+      settlementAttemptFailed: attemptEventRows.filter((item) => item.kind === "failed").length,
+      settlementAttemptSucceeded: attemptEventRows.filter((item) => item.kind === "succeeded")
+        .length,
+      settlementAttemptTimeout: attemptEventRows.filter((item) => item.kind === "timeout").length,
+      settlementAttemptUnknown: attemptEventRows.filter((item) => item.kind === "unknown").length,
     };
+  }
+
+  private async isolateNextProviderEvent(now: Date, safeCode: string): Promise<void> {
+    await this.database.transaction(async (transaction) => {
+      const locked = await transaction.execute<{
+        id: string;
+        payment_intent_id: string;
+        processing_attempt_count: number;
+      }>(sql`
+        select id, payment_intent_id, processing_attempt_count
+        from provider_events
+        where processed_at is null
+          and dead_lettered_at is null
+          and next_processing_at <= ${now}
+        order by received_at
+        for update skip locked
+        limit 1
+      `);
+      const event = locked.rows[0];
+      if (!event) {
+        return;
+      }
+      const attemptCount = event.processing_attempt_count + 1;
+      const deadLettered = attemptCount >= this.config.PROVIDER_EVENT_MAX_PROCESSING_ATTEMPTS;
+      const backoffSeconds =
+        this.config.PROVIDER_EVENT_RETRY_BACKOFF_SECONDS * 2 ** Math.min(attemptCount - 1, 8);
+      await transaction
+        .update(providerEvents)
+        .set({
+          deadLetteredAt: deadLettered ? now : null,
+          lastProcessingFailureCode: safeCode,
+          nextProcessingAt: new Date(now.getTime() + backoffSeconds * 1_000),
+          processingAttemptCount: attemptCount,
+        })
+        .where(eq(providerEvents.id, event.id));
+      if (!deadLettered) {
+        return;
+      }
+      const [bridge] = await transaction
+        .select()
+        .from(bridgeSettlements)
+        .where(eq(bridgeSettlements.paymentIntentId, event.payment_intent_id))
+        .for("update")
+        .limit(1);
+      const mayEnterManualReview: readonly string[] = [
+        "awaiting_source_payment",
+        "source_payment_confirming",
+        "source_payment_settled",
+        "destination_settlement_queued",
+        "destination_settlement_processing",
+        "destination_settlement_failed",
+        "quote_locked",
+      ];
+      if (!bridge || !mayEnterManualReview.includes(bridge.status)) {
+        return;
+      }
+      await transaction
+        .update(bridgeSettlements)
+        .set({
+          failureCode: safeCode,
+          status: "manual_review",
+          updatedAt: now,
+        })
+        .where(eq(bridgeSettlements.id, bridge.id));
+      await transaction
+        .update(paymentIntents)
+        .set({
+          failureCode: safeCode,
+          status: "manual_review",
+          updatedAt: now,
+        })
+        .where(eq(paymentIntents.id, bridge.paymentIntentId));
+      await transaction
+        .update(settlementObligations)
+        .set({
+          failureCode: safeCode,
+          status: "manual_review",
+          updatedAt: now,
+        })
+        .where(eq(settlementObligations.bridgeSettlementId, bridge.id));
+    });
   }
 
   private async findOne(condition: ReturnType<typeof eq>) {

@@ -32,6 +32,13 @@ export class BridgeSourceSetupError extends Error {
   }
 }
 
+export class BridgeRailUnavailableError extends Error {
+  constructor(readonly safeCode: "SOURCE_RAIL_UNAVAILABLE" | "DESTINATION_RAIL_UNAVAILABLE") {
+    super("A required fake bridge rail is unavailable.");
+    this.name = "BridgeRailUnavailableError";
+  }
+}
+
 function fakeLightningInvoiceFor(destination: SettlementDestination): string {
   if (destination.type === "lightning_invoice") {
     return destination.invoice;
@@ -130,6 +137,10 @@ export class RepositoryBackedSettlementCoordinator implements BridgeEngine {
   async create(input: Parameters<BridgeEngine["create"]>[0]): Promise<BridgeCreation> {
     const now = input.intent.createdAt;
     validateCreation(input, now);
+    const existing = await this.#repository.findByCollectionKey(input.collectionIdempotencyKey);
+    if (!existing) {
+      await this.assertRailCapacity(input);
+    }
     let staged: Awaited<ReturnType<SettlementSagaRepository["stageBridge"]>>;
     try {
       staged = await this.#repository.stageBridge({
@@ -289,8 +300,12 @@ export class RepositoryBackedSettlementCoordinator implements BridgeEngine {
     ) {
       throw new Error("Destination settlement requires conclusive source settlement.");
     }
-    const work = await this.#repository.claimDestinationSettlement(now, 30_000);
-    if (!work || work.settlement.id !== settlementId) {
+    const work = await this.#repository.claimDestinationSettlementByBridgeId(
+      settlementId,
+      now,
+      30_000,
+    );
+    if (!work) {
       throw new Error("Destination settlement work could not be claimed.");
     }
     return this.executeDestination(work, now);
@@ -388,6 +403,38 @@ export class RepositoryBackedSettlementCoordinator implements BridgeEngine {
       this.#vault.delete(token);
     }
     return completed;
+  }
+
+  private async assertRailCapacity(input: Parameters<BridgeEngine["create"]>[0]): Promise<void> {
+    if (!this.#enabled) {
+      throw new BridgeRailUnavailableError("SOURCE_RAIL_UNAVAILABLE");
+    }
+    const [bitcoin, mobileMoney] = await Promise.all([
+      this.#bitcoin.readStatus(),
+      this.#mobileMoney.readStatus(),
+    ]);
+    if (input.direction === "btc_to_zmw") {
+      if (!bitcoin.available || bitcoin.inboundCapacitySats < input.sourceAmount) {
+        throw new BridgeRailUnavailableError("SOURCE_RAIL_UNAVAILABLE");
+      }
+      if (
+        !mobileMoney.available ||
+        mobileMoney.availableBalanceZmwMinor < input.destinationAmount
+      ) {
+        throw new LiquidityUnavailableError();
+      }
+      return;
+    }
+    if (!mobileMoney.available) {
+      throw new BridgeRailUnavailableError("SOURCE_RAIL_UNAVAILABLE");
+    }
+    if (
+      !bitcoin.available ||
+      bitcoin.availableBalanceSats < input.destinationAmount ||
+      bitcoin.outboundCapacitySats < input.destinationAmount
+    ) {
+      throw new LiquidityUnavailableError();
+    }
   }
 
   private async required(settlementId: string): Promise<BridgeSettlement> {
