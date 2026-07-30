@@ -16,6 +16,7 @@ import {
   FakeBridgeEventVerifier,
   FakeDirectLightningProvider,
 } from "@ntumba/providers";
+import { InMemorySettlementDestinationVault } from "@ntumba/treasury";
 import Fastify from "fastify";
 import {
   hasZodFastifySchemaValidationErrors,
@@ -24,7 +25,7 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod";
 import { InMemoryPaymentStore } from "./payment-store.js";
-import { InMemoryPublicRequestStore } from "./public-request-store.js";
+import { InMemoryPublicRequestStore, type PublicRequestStore } from "./public-request-store.js";
 import { healthRoutes } from "./routes/health.js";
 import { type PaymentRouteDependencies, paymentIntentRoutes } from "./routes/payment-intents.js";
 import { providerCallbackRoutes } from "./routes/provider-callbacks.js";
@@ -34,12 +35,13 @@ import { createFakeTreasuryRuntime } from "./treasury.js";
 
 type AppDependencies = PaymentRouteDependencies & {
   bridgeEventVerifier: BridgeEventVerifier;
+  publicRequestDestinationVault?: InMemorySettlementDestinationVault;
 };
 
 export async function buildApp(
   config: NtumbaConfig = loadConfig(),
   dependencies?: AppDependencies,
-  publicRequestStore = new InMemoryPublicRequestStore(),
+  publicRequestStore: PublicRequestStore = new InMemoryPublicRequestStore(),
   metrics?: NtumbaMetrics,
 ) {
   const resolvedDependencies: AppDependencies =
@@ -155,7 +157,16 @@ export async function buildApp(
     ),
     { prefix: "/api/v1" },
   );
-  await app.register(publicRequestRoutes(config, publicRequestStore), { prefix: "/api/v1" });
+  await app.register(
+    publicRequestRoutes(
+      config,
+      publicRequestStore,
+      resolvedDependencies.publicRequestDestinationVault ??
+        new InMemorySettlementDestinationVault(),
+      resolvedDependencies,
+    ),
+    { prefix: "/api/v1" },
+  );
 
   if (config.SERVE_WEB) {
     const currentDirectory = dirname(fileURLToPath(import.meta.url));

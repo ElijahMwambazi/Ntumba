@@ -97,6 +97,17 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Apply and verify the forward-only fund-safety migration and PostgreSQL concurrency,
       late-event, retention, claim, dead-letter, attempt-history and restart scenarios.
 
+## Phase 3.3 — Pre-integration reliability gate
+
+- [x] Isolate retry/dead-letter metadata to the exact failed provider event under concurrent
+      workers, with row-locked recheck and bounded non-recursive event skipping.
+- [x] Terminalize conclusive source failures across the source leg, destination obligation and
+      reservation while preserving late-source, finality-grace and immutable-journal behavior.
+- [x] Persist a privacy-minimizing public checkout envelope in PostgreSQL, defer source setup until
+      payer confirmation and fail closed when the separate non-durable destination vault is lost.
+- [x] Apply and verify the forward-only reliability migration, full PostgreSQL concurrency and
+      retention suite, API privacy cases and mobile/desktop payer journeys.
+
 ## Phase 4 — Controlled rail integrations
 
 - [ ] Add a disabled-by-default Voltage MutinyNet adapter using least-privilege LND credentials

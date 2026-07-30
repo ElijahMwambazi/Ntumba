@@ -158,7 +158,7 @@
       "gridPos": { "h": 5, "w": 3, "x": 21, "y": 1 },
       "id": 8,
       "options": {
-        "content": "<div style=\"color:#a43d35\"><h3>Non-durable</h3><p>Public requests exist only in process memory and disappear on restart.</p></div>",
+        "content": "<div><h3>Durable safe envelope</h3><p>Public requests survive in PostgreSQL. The development destination vault remains process memory; missing recovery fails before source collection.</p></div>",
         "mode": "html"
       },
       "title": "Public request store",

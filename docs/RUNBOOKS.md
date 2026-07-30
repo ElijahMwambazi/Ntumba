@@ -46,11 +46,17 @@ chat.
 
 ## Pending event backlog
 
-1. Confirm count and oldest age; provider events are normalized but currently unprocessed by
-   design.
+1. Confirm count and oldest age; provider events are normalized and processed by exact row ID.
 2. Compare opaque event IDs with rail reporting outside metrics.
-3. Do not mutate payment state until the event-processing/reconciliation milestone exists.
+3. Inspect bounded retry/dead-letter safe codes; never copy raw callbacks or exceptions.
 4. Escalate growing or old backlogs and preserve retention windows.
+
+## Public request unavailable after restart
+
+1. Confirm the safe PostgreSQL envelope exists without printing its opaque destination token.
+2. Treat a missing development-vault destination as expected fail-closed behavior.
+3. Do not recreate source collection or recover the raw destination from logs/history.
+4. Ask the merchant to create a new request; production recovery remains a later reviewed gate.
 
 ## Pending outbox backlog
 

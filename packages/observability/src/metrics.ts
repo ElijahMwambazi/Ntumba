@@ -83,7 +83,7 @@ export interface MetricsContext {
   buildCommit: string;
   jobsEnabled: boolean;
   mobileMoneyRailMode: "fake";
-  publicRequestStore: "development_non_durable";
+  publicRequestStore: "development_non_durable" | "postgres_durable_envelope";
   rateMode: "fake" | "live";
   startedAt: Date;
 }

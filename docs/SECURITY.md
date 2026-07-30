@@ -21,6 +21,8 @@
 - Destination calls keep one external idempotency key while append-only numbered transport events
   retain failure/timeout/unknown/success history. Timeout and unknown are not automatically retried.
 - Integer-only amounts, short quote expiry and idempotency apply to every request.
+- Public request creation does not call a source rail. Payer confirmation first resolves the
+  transient destination; missing recovery fails closed before invoice/collection creation.
 - The bridge is disabled by default. Fake mode is rejected in production and contains no external
   call path or real credentials.
 
@@ -30,7 +32,7 @@ Merchant destinations and payer details must not enter logs, errors, traces, ana
 PostgreSQL. Request bodies are not logged. Unexpected server errors record an error type only.
 Provider adapters must scrub upstream errors before returning them.
 
-The server does see a merchant destination transiently during intent creation. TLS,
+The server does see a merchant destination transiently during request/intent creation. TLS,
 restricted process access and careful crash/debug tooling are therefore required.
 
 The source and destination outboxes are intentionally payload-free. The current destination vault is development-only,
@@ -50,7 +52,9 @@ source settlement creates exactly one durable refund obligation.
 - Provider reference, direction, source/settlement assets and integer amounts must match the
   original intent and quote before insertion.
 - Internal event failures store only a bounded count, next time, safe code and dead-letter time.
-  Raw exceptions remain absent; poison events cannot block later work and never become success.
+  Isolation locks/rechecks the exact failed event UUID, becomes a no-op if another worker already
+  processed it and uses a bounded non-recursive scan. Raw exceptions remain absent; poison events
+  cannot contaminate or block later work and never become success.
 
 ## Financial retention
 
@@ -68,9 +72,8 @@ The service worker must keep its public-shell allowlist explicit. It bypasses `/
 cache navigations, checkout projections or payment state. Offline UI must never infer settlement
 from cached data and instead requires a fresh provider confirmation after reconnection.
 
-Checkout fragments are not sent in HTTP requests but are bearer information. Users should avoid
-posting links publicly, and the app must not load third-party analytics/resources that can inspect
-the fragment.
+Opaque checkout paths are bearer information. Users should avoid posting links publicly, and the
+app must not load third-party analytics/resources that can inspect them.
 
 ## Operator observability boundary
 

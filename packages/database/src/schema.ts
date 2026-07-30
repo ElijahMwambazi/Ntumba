@@ -1,6 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   pgEnum,
@@ -136,6 +138,52 @@ export const quotes = pgTable(
   (table) => [
     index("quotes_expires_at_idx").on(table.expiresAt),
     index("quotes_purge_at_idx").on(table.purgeAt),
+  ],
+);
+
+export const publicPaymentRequests = pgTable(
+  "public_payment_requests",
+  {
+    id: uuid("id").primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    amountZmwMinor: bigint("amount_zmw_minor", { mode: "bigint" }).notNull(),
+    receiveAsset: paymentAsset("receive_asset").notNull(),
+    destinationLookupToken: text("destination_lookup_token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    purgeAt: timestamp("purge_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("public_payment_requests_idempotency_key_uidx").on(table.idempotencyKey),
+    index("public_payment_requests_expires_at_idx").on(table.expiresAt),
+    index("public_payment_requests_purge_at_idx").on(table.purgeAt),
+    check("public_payment_requests_amount_positive", sql`${table.amountZmwMinor} > 0`),
+    check(
+      "public_payment_requests_expiry_order",
+      sql`${table.createdAt} < ${table.expiresAt} AND ${table.expiresAt} <= ${table.purgeAt}`,
+    ),
+  ],
+);
+
+export const publicPaymentRequestOptions = pgTable(
+  "public_payment_request_options",
+  {
+    id: uuid("id").primaryKey(),
+    publicRequestId: uuid("public_request_id")
+      .notNull()
+      .references(() => publicPaymentRequests.id, { onDelete: "cascade" }),
+    payerMethod: paymentAsset("payer_method").notNull(),
+    direction: paymentDirection("direction").notNull(),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id),
+  },
+  (table) => [
+    uniqueIndex("public_payment_request_options_method_uidx").on(
+      table.publicRequestId,
+      table.payerMethod,
+    ),
+    uniqueIndex("public_payment_request_options_quote_uidx").on(table.quoteId),
   ],
 );
 

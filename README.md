@@ -24,7 +24,8 @@ legs. Merchants still have no Ntumba account, balance, deposit wallet or synchro
 - Anonymous guest checkout at `/pay/:publicId`; the customer—not the merchant—chooses an
   available payment method.
 - Versioned IndexedDB preferences, requests and receipts with a confirmed clear-data action.
-- Opaque public request links with QR, copy-link and native Web Share support.
+- Durable PostgreSQL public-request envelopes with opaque links, QR, copy-link and native Web
+  Share support; raw destinations remain only in the separate development memory vault.
 - Fastify quote and fake payment-intent APIs.
 - Integer-only quotes and explicit source, destination and direct-payment states.
 - Disabled-by-default fake operator treasury with separate Lightning, mobile-money, rate,
@@ -43,11 +44,12 @@ legs. Merchants still have no Ntumba account, balance, deposit wallet or synchro
 - Deterministic fake Voltage/LND and fake Lipila adapters only.
 
 No Voltage connection, Lipila connection, live rate, mainnet payment or real funds are supported.
-The fake destination vault is process memory only. Durable accounting and obligations survive a
-restart, and a settled source with a lost destination or a late settlement after expiry creates
-one refund obligation. Fake provider state can be shared across replacement adapters to test
-provider-side idempotency, but real provider semantics remain unverified. This is not
-production-safe.
+The public checkout envelope, accounting and obligations survive a restart, but the fake
+destination vault remains process memory only. A restarted public request whose destination is
+gone becomes unavailable before source collection. A destination lost after source settlement, or
+a late settlement after expiry/conclusive failure, creates one refund obligation. Fake provider
+state can be shared across replacement adapters to test provider-side idempotency, but real
+provider semantics remain unverified. This is not production-safe.
 
 ## Requirements
 

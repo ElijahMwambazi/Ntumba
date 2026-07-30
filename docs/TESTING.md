@@ -8,13 +8,15 @@
   journal balance, refund-required handling and destination-vault expiry/deletion.
 - Fund-safety tests cover durable source credit/destination debit, opening-balance immutability,
   concurrent reservation locking, late settlement/refund idempotency, rail capacity gates,
-  targeted claims, provider-event isolation/dead letters, numbered attempt history and
+  targeted claims, exact provider-event isolation/dead letters under concurrent workers,
+  conclusive source-failure obligations, numbered attempt history and
   replacement adapters sharing only simulated remote-provider state.
 - Provider tests cover signed callback normalization/timestamp rejection and direct
   merchant-invoice pass-through.
 - API tests use Fastify injection with an in-memory safe-state repository, including raw callback
   signature, intent matching, duplicate and privacy behavior. Failure injection proves a pending
-  provider-intent outbox resumes with the same idempotency key after a provider timeout.
+  provider-intent outbox resumes with the same idempotency key after a provider timeout. Public
+  request tests prove opaque/idempotent IDs and fail closed before source setup after vault loss.
 - Storage tests cover schema-version serialization, loading, deletion, v1 migration and
   session-memory fallback.
 - Sharing tests cover native Web Share and unavailable fallback.
@@ -51,9 +53,10 @@ yarn audit:dependencies
 
 `yarn db:generate` validates the Drizzle model. `yarn test:integration` applies all migrations to a
 disposable PostgreSQL database and validates positive/nonnegative integer checks, inventory
-locking/mutation, unresolved retention, terminal foreign-key purge order, poisoned-event
-isolation, targeted leases, append-only attempt/journal triggers and deferred per-asset journal
-balance enforcement.
+locking/mutation, unresolved retention, terminal foreign-key purge order, exact poisoned-event
+isolation under concurrent workers, conclusive source failures, durable public-request restart and
+purge behavior, targeted leases, append-only attempt/journal triggers and deferred per-asset
+journal balance enforcement.
 
 ## Continuous integration
 
@@ -72,7 +75,8 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - ZMW is ngwee and Bitcoin is satoshis; no floating-point money.
 - Duplicate idempotency key returns one logical bridge intent.
 - Conclusive source setup failure releases the reservation and deletes the destination; uncertain
-  setup preserves the original collection action in manual review without blind retry.
+  setup preserves the original collection action in manual review without blind retry. The
+  conclusive path also fails the waiting destination obligation and terminalizes its source outbox.
 - Destination is absent from stored intent and response.
 - Raw callback body is verified in memory and only a hash/normalized event can persist.
 - Stale/tampered signatures, amount mismatches and conflicting event-ID replays cannot persist.
@@ -104,6 +108,8 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - The merchant form never asks how the customer will pay.
 - The guest checkout has no merchant navigation and exposes only supported payment methods.
 - Request links use opaque public IDs and contain no URL-fragment destination payload.
+- Public request envelopes survive store/server replacement, contain no merchant identity or raw
+  destination fields, purge when due and fail before either fake source rail if the vault is lost.
 - Clear local data requires confirmation and does not imply server-side deletion.
 - Active navigation has a non-colour cue and tap targets are at least 48px.
 - The first local Get paid visit expands the appropriate quick guide and stores only the local

@@ -184,18 +184,17 @@ export const payerMethodSchema = z.enum(["BTC", "ZMW"]);
 export type PayerMethod = z.infer<typeof payerMethodSchema>;
 
 export const publicRequestOptionSchema = z.object({
-  intent: paymentIntentResponseSchema,
   payerMethod: payerMethodSchema,
+  quote: createQuoteResponseSchema,
 });
 export type PublicRequestOption = z.infer<typeof publicRequestOptionSchema>;
 
 export const createPublicRequestRequestSchema = z.object({
   amountZmw: amountZmwSchema,
+  destination: settlementDestinationSchema,
   idempotencyKey: idempotencyKeySchema,
-  merchantLabel: z.string().trim().min(1).max(80).optional(),
-  options: z.array(publicRequestOptionSchema).min(1).max(2),
+  payerMethods: z.array(payerMethodSchema).min(1).max(2),
   receiveAsset: assetSchema,
-  reference: z.string().trim().min(1).max(120).optional(),
 });
 export type CreatePublicRequestRequest = z.infer<typeof createPublicRequestRequestSchema>;
 
@@ -204,13 +203,19 @@ export const publicPaymentRequestSchema = z.object({
   createdAt: z.iso.datetime(),
   developmentOnly: z.literal(true),
   expiresAt: z.iso.datetime(),
-  merchantLabel: z.string().nullable(),
   options: z.array(publicRequestOptionSchema).min(1).max(2),
   publicId: z.uuid(),
   receiveAsset: assetSchema,
-  reference: z.string().nullable(),
 });
 export type PublicPaymentRequest = z.infer<typeof publicPaymentRequestSchema>;
+
+export const createPublicRequestPaymentIntentSchema = z.object({
+  idempotencyKey: idempotencyKeySchema,
+  payerMethod: payerMethodSchema,
+});
+export type CreatePublicRequestPaymentIntent = z.infer<
+  typeof createPublicRequestPaymentIntentSchema
+>;
 
 export const apiErrorSchema = z.object({
   error: z.object({

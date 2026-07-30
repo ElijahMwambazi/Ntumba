@@ -143,21 +143,26 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
   await page.route("**/api/v1/public-requests", async (route) => {
     const body = route.request().postDataJSON() as {
       amountZmw: string;
-      merchantLabel?: string;
-      options: unknown[];
+      payerMethods: Array<"BTC" | "ZMW">;
       receiveAsset: "BTC" | "ZMW";
-      reference?: string;
     };
+    const requestOptions = body.payerMethods.map((payerMethod) => {
+      const direction =
+        body.receiveAsset === "ZMW"
+          ? "btc_to_zmw"
+          : payerMethod === "BTC"
+            ? "btc_to_btc"
+            : "zmw_to_btc";
+      return { payerMethod, quote: quote(direction, body.amountZmw, options.expired) };
+    });
     published = {
       amountZmw: body.amountZmw,
       createdAt: new Date().toISOString(),
       developmentOnly: true,
       expiresAt: options.expired ? new Date(Date.now() - 1_000).toISOString() : expiresIn(10),
-      merchantLabel: body.merchantLabel ?? null,
-      options: body.options,
+      options: requestOptions,
       publicId,
       receiveAsset: body.receiveAsset,
-      reference: body.reference ?? null,
     };
     await route.fulfill({ json: published, status: 201 });
   });
@@ -170,47 +175,56 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
         createdAt: new Date().toISOString(),
         developmentOnly: true,
         expiresAt: directQuote.expiresAt,
-        merchantLabel: "Lusaka Market",
         options: [
           {
-            intent: {
-              checkout: {
-                merchantOwned: true,
-                paymentRequest: "lntb10n1merchantownedinvoice000000",
-                type: "direct_lightning",
-                verification: "unverified",
-              },
-              direction: "btc_to_btc",
-              expiresAt: directQuote.expiresAt,
-              paymentIntentId: intentIds.btc_to_btc,
-              quote: directQuote,
-              status: "direct_payment_pending",
-            },
             payerMethod: "BTC",
+            quote: directQuote,
           },
           {
-            intent: {
-              checkout: {
-                checkoutUrl: "https://treasury.invalid/checkout/fake",
-                instructions: "Approve the simulated Lipila mobile-money collection.",
-                providerReference: "fake-zmw-to-btc",
-                type: "provider",
-              },
-              direction: "zmw_to_btc",
-              expiresAt: directQuote.expiresAt,
-              paymentIntentId: intentIds.zmw_to_btc,
-              quote: quote("zmw_to_btc", "125.00", options.expired),
-              status: "awaiting_source_payment",
-            },
             payerMethod: "ZMW",
+            quote: quote("zmw_to_btc", "125.00", options.expired),
           },
         ],
         publicId,
         receiveAsset: "BTC",
-        reference: "Table 4",
       };
     }
     await route.fulfill({ json: published });
+  });
+
+  await page.route(`**/api/v1/public-requests/${publicId}/payment-intents`, async (route) => {
+    const body = route.request().postDataJSON() as { payerMethod: "BTC" | "ZMW" };
+    const direction =
+      published?.receiveAsset === "ZMW"
+        ? "btc_to_zmw"
+        : body.payerMethod === "BTC"
+          ? "btc_to_btc"
+          : "zmw_to_btc";
+    const quoted = quote(direction, "125.00", options.expired);
+    const direct = direction === "btc_to_btc";
+    await route.fulfill({
+      json: {
+        checkout: direct
+          ? {
+              merchantOwned: true,
+              paymentRequest: "lntb10n1merchantownedinvoice000000",
+              type: "direct_lightning",
+              verification: "unverified",
+            }
+          : {
+              checkoutUrl: "https://treasury.invalid/checkout/fake",
+              instructions: "Approve the simulated Lipila mobile-money collection.",
+              providerReference: "fake-zmw-to-btc",
+              type: "provider",
+            },
+        direction,
+        expiresAt: quoted.expiresAt,
+        paymentIntentId: intentIds[direction],
+        quote: quoted,
+        status: direct ? "direct_payment_pending" : "awaiting_source_payment",
+      },
+      status: 201,
+    });
   });
 
   await page.route("**/api/v1/payment-intents/*", async (route) => {

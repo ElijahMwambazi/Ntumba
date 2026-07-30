@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import type { NtumbaConfig } from "@ntumba/config";
 import { NtumbaMetrics } from "@ntumba/observability";
 import { FakeBridgeEventVerifier, FakeDirectLightningProvider } from "@ntumba/providers";
-import type { BridgeEngine } from "@ntumba/treasury";
+import { type BridgeEngine, InMemorySettlementDestinationVault } from "@ntumba/treasury";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { InMemoryPaymentStore } from "./payment-store.js";
@@ -397,43 +397,48 @@ describe("Ntumba API", () => {
   it("publishes an opaque development request without a merchant destination", async () => {
     const app = await buildApp(config);
     openApps.push(app);
-    const quoted = await quote(app);
-    const intent = await app.inject({
-      method: "POST",
-      url: "/api/v1/payment-intents",
-      payload: {
-        destination: {
-          network: "mtn",
-          phone: "0971234567",
-          type: "mobile_money",
-        },
-        direction: "btc_to_zmw",
-        idempotencyKey: "public-intent-012345",
-        quoteId: quoted.json().quoteId,
+    const payload = {
+      amountZmw: "100.00",
+      destination: {
+        network: "mtn",
+        phone: "0971234567",
+        type: "mobile_money",
       },
-    });
+      idempotencyKey: "public-request-012345",
+      payerMethods: ["BTC"],
+      receiveAsset: "ZMW",
+    };
 
     const published = await app.inject({
       method: "POST",
       url: "/api/v1/public-requests",
-      payload: {
-        amountZmw: "100.00",
-        idempotencyKey: "public-request-012345",
-        merchantLabel: "Market stall",
-        options: [{ intent: intent.json(), payerMethod: "BTC" }],
-        receiveAsset: "ZMW",
-        reference: "Table 4",
-      },
+      payload,
     });
 
     expect(published.statusCode).toBe(201);
     expect(published.json()).toMatchObject({
       developmentOnly: true,
-      merchantLabel: "Market stall",
+      options: [{ payerMethod: "BTC", quote: { direction: "btc_to_zmw" } }],
       receiveAsset: "ZMW",
-      reference: "Table 4",
     });
     expect(published.body).not.toContain("0971234567");
+    expect(published.body).not.toContain("destination");
+    expect(published.body).not.toContain("merchantLabel");
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload,
+    });
+    expect(duplicate.json().publicId).toBe(published.json().publicId);
+    const independent = await app.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload: { ...payload, idempotencyKey: "public-request-987654" },
+    });
+    expect(independent.json().publicId).not.toBe(published.json().publicId);
+    for (const publicId of [published.json().publicId, independent.json().publicId]) {
+      expect(publicId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-/);
+    }
 
     const loaded = await app.inject({
       method: "GET",
@@ -441,5 +446,62 @@ describe("Ntumba API", () => {
     });
     expect(loaded.statusCode).toBe(200);
     expect(loaded.json().publicId).toBe(published.json().publicId);
+
+    const selected = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+      payload: {
+        idempotencyKey: "public-selection-012345",
+        payerMethod: "BTC",
+      },
+    });
+    expect(selected.statusCode).toBe(201);
+    expect(selected.json()).toMatchObject({
+      direction: "btc_to_zmw",
+      status: "awaiting_source_payment",
+    });
+    expect(selected.body).not.toContain("0971234567");
+  });
+
+  it("fails closed before source setup when a durable request loses its destination", async () => {
+    const treasury = createFakeTreasuryRuntime(config);
+    const paymentStore = new InMemoryPaymentStore();
+    const publicVault = new InMemorySettlementDestinationVault(() => "public-destination-token");
+    const app = await buildApp(config, {
+      bridgeEngine: treasury.bridgeEngine,
+      bridgeEventVerifier: new FakeBridgeEventVerifier(),
+      directLightningProvider: new FakeDirectLightningProvider(),
+      publicRequestDestinationVault: publicVault,
+      store: paymentStore,
+    });
+    openApps.push(app);
+    const published = await app.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload: {
+        amountZmw: "100.00",
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        idempotencyKey: "restart-request-012345",
+        payerMethods: ["BTC"],
+        receiveAsset: "ZMW",
+      },
+    });
+    expect(published.statusCode).toBe(201);
+    publicVault.delete("public-destination-token");
+
+    const unavailable = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+      payload: {
+        idempotencyKey: "restart-selection-012345",
+        payerMethod: "BTC",
+      },
+    });
+    expect(unavailable.statusCode).toBe(410);
+    expect(unavailable.body).not.toContain("0971234567");
+    expect(
+      await paymentStore.findIntentByIdempotencyKey("restart-selection-012345"),
+    ).toBeUndefined();
+    expect(await treasury.repository.readJournal()).toHaveLength(0);
   });
 });

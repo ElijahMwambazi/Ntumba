@@ -109,8 +109,8 @@ callback bodies, database URLs or credentials. HTTP labels use registered route 
 
 ## Dashboard sections
 
-1. **Overview** — development status, API/database/jobs, bridge/rate modes, public-request
-   durability warning and build commit.
+1. **Overview** — development status, API/database/jobs, bridge/rate modes, durable public-envelope
+   status, non-durable destination-vault warning and build commit.
 2. **Attention required** — manual review, refund required, failed/unavailable intents, backlog ages and purge
    failures.
 3. **Payment pipeline** — aggregate intent direction/state, two-leg fake treasury stages and

@@ -95,7 +95,7 @@ describe("private operational listener", () => {
       bridgeEngine: "disabled",
       database: "available",
       mobileMoneyLiquidityRail: "fake",
-      publicRequestStore: "development_non_durable",
+      publicRequestStore: "postgres_durable_envelope",
       status: "development_only",
     });
   });

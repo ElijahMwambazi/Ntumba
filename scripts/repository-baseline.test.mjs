@@ -45,6 +45,40 @@ assert.match(
   "The runtime image must reuse the pinned Yarn downloaded by the build stage",
 );
 
+const settlementRepository = await readFile(
+  new URL("../apps/server/src/postgres-settlement-saga-repository.ts", import.meta.url),
+  "utf8",
+);
+assert.match(settlementRepository, /const PROVIDER_EVENT_SCAN_LIMIT = \d+;/);
+assert.doesNotMatch(
+  settlementRepository,
+  /return this\.processNextProviderEvent\(/,
+  "Provider-event skipping must not recurse",
+);
+
+const databaseSchema = await readFile(
+  new URL("../packages/database/src/schema.ts", import.meta.url),
+  "utf8",
+);
+const publicRequestSchema = databaseSchema.slice(
+  databaseSchema.indexOf("export const publicPaymentRequests"),
+  databaseSchema.indexOf("export const paymentIntents"),
+);
+for (const forbiddenField of [
+  "phone",
+  "address",
+  "invoice",
+  "merchantLabel",
+  "reference",
+  "customer",
+]) {
+  assert.doesNotMatch(
+    publicRequestSchema,
+    new RegExp(`\\b${forbiddenField}\\b`, "i"),
+    `durable public requests must not contain ${forbiddenField}`,
+  );
+}
+
 const ciWorkflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 assert.match(ciWorkflow, /actions\/checkout@v6/);
 assert.match(ciWorkflow, /actions\/setup-node@v6/);

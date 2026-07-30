@@ -14,8 +14,11 @@ obligations explicit.
 - pg-boss runs hourly purge plus PostgreSQL-backed provider-event and destination-settlement
   workers when jobs are enabled.
 - No provider credential, wallet credential or real payment action exists.
+- PostgreSQL stores the safe public checkout envelope for multi-instance reads. The destination
+  lookup token points only to the separate development memory vault.
 - The destination vault is process memory only. Restart/expiry after conclusive source settlement
-  creates one `refund_required` obligation.
+  creates one `refund_required` obligation; restart before source setup makes the durable request
+  unavailable and no source rail is called.
 - Private operator metrics are disabled by default. After the documented forward-only migration
   step, `docker compose --profile ops up --build` starts the bearer-protected internal listener,
   private Prometheus and loopback-only Grafana after the required shell secrets are supplied; see
@@ -54,6 +57,8 @@ purge is failing or failure/manual-review rates exceed thresholds.
   A reviewed accounting operation—not configuration—is required for a future adjustment.
 - Purge logs include all saga child categories, including transport-attempt events. Records
   retained for unresolved financial state correctly produce no purge count.
+- Public request envelopes are deleted when their independent purge timestamp is due; this never
+  authorizes deletion of treasury journal history.
 
 ## Incident priorities
 

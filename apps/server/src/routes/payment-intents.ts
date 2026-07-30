@@ -111,6 +111,150 @@ async function dispatchProviderIntent(
   };
 }
 
+interface PaymentIntentErrors {
+  badRequest(message: string): Error;
+  conflict(message: string): Error;
+  gone(message: string): Error;
+  serviceUnavailable(message: string): Error;
+}
+
+export async function createPaymentIntentForRequest(
+  config: NtumbaConfig,
+  dependencies: PaymentRouteDependencies,
+  input: CreatePaymentIntentRequest,
+  errors: PaymentIntentErrors,
+  now = new Date(),
+) {
+  await purgeWithMetrics(dependencies.store, dependencies.metrics, "opportunistic", now);
+  const quote = await dependencies.store.getQuote(input.quoteId);
+  if (!quote) {
+    throw errors.gone("The quote has expired. Create a new quote.");
+  }
+  if (quote.response.direction !== input.direction) {
+    throw errors.badRequest("The payment direction does not match the quote.");
+  }
+  if (input.direction !== "btc_to_btc" && config.BRIDGE_ENGINE_MODE !== "fake") {
+    throw errors.serviceUnavailable(
+      "The fake conversion bridge is disabled. Direct Bitcoin remains available.",
+    );
+  }
+
+  const existing = await dependencies.store.findIntentByIdempotencyKey(input.idempotencyKey);
+  if (!existing && new Date(quote.response.expiresAt).getTime() <= now.getTime()) {
+    throw errors.gone("The quote has expired. Create a new quote.");
+  }
+  if (existing) {
+    if (existing.quoteId !== input.quoteId || existing.direction !== input.direction) {
+      throw errors.conflict("The idempotency key is already bound to another payment request.");
+    }
+    let checkout: CheckoutInstructions;
+    let intent = existing;
+    if (input.direction === "btc_to_btc") {
+      if (quote.merchantAmountSats === null) {
+        throw new Error("Direct quote did not include a satoshi amount.");
+      }
+      const directInvoice = await dependencies.directLightningProvider.prepareMerchantInvoice({
+        amountSats: quote.merchantAmountSats,
+        destination: input.destination,
+        paymentReference: existing.id,
+      });
+      checkout = {
+        merchantOwned: true,
+        paymentRequest: directInvoice.paymentRequest,
+        type: "direct_lightning",
+        verification: "unverified",
+      };
+    } else {
+      const dispatched = await dispatchProviderIntent(config, dependencies, input, intent, quote);
+      checkout = dispatched.checkout;
+      intent = dispatched.intent;
+    }
+    return {
+      checkout,
+      direction: intent.direction,
+      expiresAt: intent.expiresAt.toISOString(),
+      paymentIntentId: intent.id,
+      quote: quote.response,
+      status: intent.status,
+    };
+  }
+
+  const paymentIntentId = randomUUID();
+  const retention = createRetentionWindow(
+    now,
+    config.QUOTE_TTL_SECONDS,
+    config.INTENT_RETENTION_SECONDS,
+  );
+  let intent: StoredPaymentIntent;
+  let checkout: CheckoutInstructions;
+
+  if (input.direction === "btc_to_btc") {
+    if (quote.merchantAmountSats === null) {
+      throw new Error("Direct quote did not include a satoshi amount.");
+    }
+    const directInvoice = await dependencies.directLightningProvider.prepareMerchantInvoice({
+      amountSats: quote.merchantAmountSats,
+      destination: input.destination,
+      paymentReference: paymentIntentId,
+    });
+    checkout = {
+      merchantOwned: true,
+      paymentRequest: directInvoice.paymentRequest,
+      type: "direct_lightning",
+      verification: "unverified",
+    };
+    intent = {
+      createdAt: now,
+      destinationToken: null,
+      direction: input.direction,
+      expiresAt: directInvoice.expiresAt,
+      failureCode: null,
+      id: paymentIntentId,
+      idempotencyKey: input.idempotencyKey,
+      provider: null,
+      providerReference: null,
+      purgeAt: retention.purgeAt,
+      quoteId: quote.response.quoteId,
+      status: "direct_payment_pending",
+      updatedAt: now,
+    };
+  } else {
+    intent = {
+      createdAt: now,
+      destinationToken: null,
+      direction: input.direction,
+      expiresAt: new Date(quote.response.expiresAt),
+      failureCode: null,
+      id: paymentIntentId,
+      idempotencyKey: input.idempotencyKey,
+      provider: "fake_treasury",
+      providerReference: null,
+      purgeAt: retention.purgeAt,
+      quoteId: quote.response.quoteId,
+      status: "quote_locked",
+      updatedAt: now,
+    };
+    const dispatched = await dispatchProviderIntent(config, dependencies, input, intent, quote);
+    checkout = dispatched.checkout;
+    intent = dispatched.intent;
+  }
+
+  if (input.direction === "btc_to_btc") {
+    intent = await dependencies.store.saveIntent(intent);
+  }
+  if (intent.quoteId !== input.quoteId || intent.direction !== input.direction) {
+    throw errors.conflict("The idempotency key is already bound to another payment request.");
+  }
+  return {
+    checkout,
+    direction: intent.direction,
+    expiresAt: intent.expiresAt.toISOString(),
+    paymentIntentId: intent.id,
+    quote: quote.response,
+    status: intent.status,
+  };
+}
+
 export function paymentIntentRoutes(
   config: NtumbaConfig,
   dependencies: PaymentRouteDependencies,
@@ -127,166 +271,13 @@ export function paymentIntentRoutes(
         },
       },
       async (request, reply) => {
-        await purgeWithMetrics(
-          dependencies.store,
-          dependencies.metrics,
-          "opportunistic",
-          new Date(),
+        const response = await createPaymentIntentForRequest(
+          config,
+          dependencies,
+          request.body,
+          app.httpErrors,
         );
-        const quote = await dependencies.store.getQuote(request.body.quoteId);
-        if (!quote) {
-          throw app.httpErrors.gone("The quote has expired. Create a new quote.");
-        }
-        if (quote.response.direction !== request.body.direction) {
-          throw app.httpErrors.badRequest("The payment direction does not match the quote.");
-        }
-        if (request.body.direction !== "btc_to_btc" && config.BRIDGE_ENGINE_MODE !== "fake") {
-          throw app.httpErrors.serviceUnavailable(
-            "The fake conversion bridge is disabled. Direct Bitcoin remains available.",
-          );
-        }
-
-        const existing = await dependencies.store.findIntentByIdempotencyKey(
-          request.body.idempotencyKey,
-        );
-        if (!existing && new Date(quote.response.expiresAt).getTime() <= Date.now()) {
-          throw app.httpErrors.gone("The quote has expired. Create a new quote.");
-        }
-        if (existing) {
-          if (
-            existing.quoteId !== request.body.quoteId ||
-            existing.direction !== request.body.direction
-          ) {
-            throw app.httpErrors.conflict(
-              "The idempotency key is already bound to another payment request.",
-            );
-          }
-          let checkout: CheckoutInstructions;
-          let intent = existing;
-          if (request.body.direction === "btc_to_btc") {
-            if (quote.merchantAmountSats === null) {
-              throw new Error("Direct quote did not include a satoshi amount.");
-            }
-            const directInvoice = await dependencies.directLightningProvider.prepareMerchantInvoice(
-              {
-                amountSats: quote.merchantAmountSats,
-                destination: request.body.destination,
-                paymentReference: existing.id,
-              },
-            );
-            checkout = {
-              merchantOwned: true,
-              paymentRequest: directInvoice.paymentRequest,
-              type: "direct_lightning",
-              verification: "unverified",
-            };
-          } else {
-            const dispatched = await dispatchProviderIntent(
-              config,
-              dependencies,
-              request.body,
-              intent,
-              quote,
-            );
-            checkout = dispatched.checkout;
-            intent = dispatched.intent;
-          }
-          return reply.status(201).send({
-            checkout,
-            direction: intent.direction,
-            expiresAt: intent.expiresAt.toISOString(),
-            paymentIntentId: intent.id,
-            quote: quote.response,
-            status: intent.status,
-          });
-        }
-
-        const now = new Date();
-        const paymentIntentId = randomUUID();
-        const retention = createRetentionWindow(
-          now,
-          config.QUOTE_TTL_SECONDS,
-          config.INTENT_RETENTION_SECONDS,
-        );
-        let intent: StoredPaymentIntent;
-        let checkout: CheckoutInstructions;
-
-        if (request.body.direction === "btc_to_btc") {
-          if (quote.merchantAmountSats === null) {
-            throw new Error("Direct quote did not include a satoshi amount.");
-          }
-          const directInvoice = await dependencies.directLightningProvider.prepareMerchantInvoice({
-            amountSats: quote.merchantAmountSats,
-            destination: request.body.destination,
-            paymentReference: paymentIntentId,
-          });
-          checkout = {
-            merchantOwned: true,
-            paymentRequest: directInvoice.paymentRequest,
-            type: "direct_lightning",
-            verification: "unverified",
-          };
-          intent = {
-            createdAt: now,
-            destinationToken: null,
-            direction: request.body.direction,
-            expiresAt: directInvoice.expiresAt,
-            failureCode: null,
-            id: paymentIntentId,
-            idempotencyKey: request.body.idempotencyKey,
-            provider: null,
-            providerReference: null,
-            purgeAt: retention.purgeAt,
-            quoteId: quote.response.quoteId,
-            status: "direct_payment_pending",
-            updatedAt: now,
-          };
-        } else {
-          intent = {
-            createdAt: now,
-            destinationToken: null,
-            direction: request.body.direction,
-            expiresAt: new Date(quote.response.expiresAt),
-            failureCode: null,
-            id: paymentIntentId,
-            idempotencyKey: request.body.idempotencyKey,
-            provider: "fake_treasury",
-            providerReference: null,
-            purgeAt: retention.purgeAt,
-            quoteId: quote.response.quoteId,
-            status: "quote_locked",
-            updatedAt: now,
-          };
-          const dispatched = await dispatchProviderIntent(
-            config,
-            dependencies,
-            request.body,
-            intent,
-            quote,
-          );
-          checkout = dispatched.checkout;
-          intent = dispatched.intent;
-        }
-
-        if (request.body.direction === "btc_to_btc") {
-          intent = await dependencies.store.saveIntent(intent);
-        }
-        if (
-          intent.quoteId !== request.body.quoteId ||
-          intent.direction !== request.body.direction
-        ) {
-          throw app.httpErrors.conflict(
-            "The idempotency key is already bound to another payment request.",
-          );
-        }
-        return reply.status(201).send({
-          checkout,
-          direction: intent.direction,
-          expiresAt: intent.expiresAt.toISOString(),
-          paymentIntentId: intent.id,
-          quote: quote.response,
-          status: intent.status,
-        });
+        return reply.status(201).send(response);
       },
     );
 

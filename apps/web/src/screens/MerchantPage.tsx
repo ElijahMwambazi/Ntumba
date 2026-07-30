@@ -1,16 +1,8 @@
-import type {
-  Asset,
-  CreatePaymentIntentRequest,
-  MobileMoneyNetwork,
-  PayerMethod,
-  PaymentDirection,
-  PublicRequestOption,
-  SettlementDestination,
-} from "@ntumba/contracts";
+import type { Asset, MobileMoneyNetwork, SettlementDestination } from "@ntumba/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
-import { createPaymentIntent, createPublicRequest, createQuote } from "../api.js";
+import { createPublicRequest } from "../api.js";
 import { Icon, InlineStatus, MerchantShell } from "../components.js";
 import { merchantLocalStore } from "../local-storage.js";
 import { maskDestination, payerMethodsFor } from "../payment-ui.js";
@@ -55,7 +47,6 @@ export function MerchantPage() {
   >("lightning_address");
   const [reference, setReference] = useState("");
   const [showReference, setShowReference] = useState(false);
-  const [merchantLabel, setMerchantLabel] = useState("");
   const [storageWarning, setStorageWarning] = useState(!merchantLocalStore.available);
   const [online, setOnline] = useState(navigator.onLine);
   const [guideExpanded, setGuideExpanded] = useState(false);
@@ -64,7 +55,6 @@ export function MerchantPage() {
   useEffect(() => {
     void merchantLocalStore.load().then(async (localData) => {
       const { preferences } = localData;
-      setMerchantLabel(preferences.displayName ?? "");
       setReceiveAsset(preferences.preferredSettlementAsset ?? "ZMW");
       setNetwork(preferences.mobileMoneyDestination?.network ?? "mtn");
       setPhone(preferences.mobileMoneyDestination?.phone ?? "");
@@ -107,46 +97,16 @@ export function MerchantPage() {
             ? { invoice: lightningDestination, type: "lightning_invoice" }
             : { address: lightningDestination, type: "lightning_address" };
 
-      async function createOption(
-        direction: PaymentDirection,
-        payerMethod: PayerMethod,
-      ): Promise<PublicRequestOption> {
-        const quote = await createQuote({ amountZmw, direction });
-        const base = {
-          idempotencyKey: crypto.randomUUID(),
-          quoteId: quote.quoteId,
-        };
-        let input: CreatePaymentIntentRequest;
-        if (direction === "btc_to_zmw" && destination.type === "mobile_money") {
-          input = { ...base, destination, direction };
-        } else if (direction === "btc_to_btc" && destination.type !== "mobile_money") {
-          input = { ...base, destination, direction };
-        } else if (direction === "zmw_to_btc" && destination.type !== "mobile_money") {
-          input = { ...base, destination, direction };
-        } else {
-          throw new Error("The destination does not support this payment option.");
-        }
-        return { intent: await createPaymentIntent(input), payerMethod };
-      }
-
-      const options =
-        receiveAsset === "ZMW"
-          ? [await createOption("btc_to_zmw", "BTC")]
-          : await Promise.all([
-              createOption("btc_to_btc", "BTC"),
-              createOption("zmw_to_btc", "ZMW"),
-            ]);
       const publicRequest = await createPublicRequest({
         amountZmw,
+        destination,
         idempotencyKey: crypto.randomUUID(),
-        ...(merchantLabel ? { merchantLabel } : {}),
-        options,
+        payerMethods: payerMethodsFor(receiveAsset),
         receiveAsset,
-        ...(reference.trim() ? { reference: reference.trim() } : {}),
       });
-      return { destination, publicRequest };
+      return { destination, localReference: reference.trim(), publicRequest };
     },
-    onSuccess: async ({ destination, publicRequest }) => {
+    onSuccess: async ({ destination, localReference, publicRequest }) => {
       const localId = crypto.randomUUID();
       const shareUrl = `${window.location.origin}/pay/${publicRequest.publicId}`;
       await merchantLocalStore.update((current) => ({
@@ -161,7 +121,7 @@ export function MerchantPage() {
             payerMethods: payerMethodsFor(publicRequest.receiveAsset),
             publicId: publicRequest.publicId,
             receiveAsset: publicRequest.receiveAsset,
-            ...(publicRequest.reference ? { reference: publicRequest.reference } : {}),
+            ...(localReference ? { reference: localReference } : {}),
             shareUrl,
             status: "created" as const,
           },

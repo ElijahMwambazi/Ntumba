@@ -9,6 +9,7 @@ export interface PurgeResult {
   paymentIntents: number;
   providerIntentOutbox: number;
   providerEvents: number;
+  publicPaymentRequests: number;
   quotes: number;
   reconciliationResults: number;
   refundObligations: number;
@@ -23,6 +24,11 @@ export async function purgeExpiredOperationalData(
   providerFinalityGraceSeconds = 86_400,
 ): Promise<PurgeResult> {
   return database.transaction(async (transaction) => {
+    const publicPaymentRequests = await transaction.execute(sql`
+      DELETE FROM public_payment_requests
+      WHERE purge_at <= ${now}
+      RETURNING id
+    `);
     await transaction.execute(sql`
       CREATE TEMPORARY TABLE ntumba_purge_bridge_ids
       ON COMMIT DROP
@@ -184,6 +190,10 @@ export async function purgeExpiredOperationalData(
         AND NOT EXISTS (
           SELECT 1 FROM payment_intents AS intent WHERE intent.quote_id = quote.id
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM public_payment_request_options AS request_option
+          WHERE request_option.quote_id = quote.id
+        )
       RETURNING id
     `);
 
@@ -195,6 +205,7 @@ export async function purgeExpiredOperationalData(
       paymentIntents: paymentIntents.rowCount ?? 0,
       providerIntentOutbox: providerIntentOutbox.rowCount ?? 0,
       providerEvents: providerEvents.rowCount ?? 0,
+      publicPaymentRequests: publicPaymentRequests.rowCount ?? 0,
       quotes: quotes.rowCount ?? 0,
       reconciliationResults: reconciliationResults.rowCount ?? 0,
       refundObligations: refundObligations.rowCount ?? 0,

@@ -5,9 +5,10 @@
 Ntumba remains a TypeScript modular monolith:
 
 ```text
-Merchant PWA (IndexedDB) ── quote/options ──> Fastify API
-        │                         │
-        │                         └── short-lived opaque public request (process memory)
+Merchant PWA (IndexedDB) ── safe envelope + transient destination ──> Fastify API
+        │                                                        │
+        │                                                        ├── public envelope ──> PostgreSQL
+        │                                                        └── raw destination ──> memory vault
         │
 Anonymous payer <── /pay/:publicId link ──── Merchant device
         │                                      │
@@ -33,15 +34,15 @@ Private Prometheus ── bearer token ──> Internal Fastify listener ── 
 - `contracts`: destination-free quote schemas, transient intent input, safe output schemas and
   opaque public-request capability schemas.
 - `domain`: integer monetary calculation, state transitions and retention windows.
-- `database`: operational schema, two-leg treasury foundation, asset-specific journal and purge
-  transaction.
+- `database`: operational schema, durable public checkout envelope, two-leg treasury foundation,
+  asset-specific journal and purge transaction.
 - `providers`: verified normalized callback/event boundary and direct merchant Lightning contract.
 - `treasury`: Bitcoin and mobile-money rails, integer rate source, liquidity inventory, settlement
   coordinator, expiring destination vault, immutable journal and reconciliation boundaries.
 - `observability`: bounded metric names/labels, aggregate snapshots and future read-only status
   interfaces with no fund-moving methods.
-- `server`: API routes, persistence adapter, development-only public request store and scheduled
-  jobs, plus a separately bound private health/metrics listener.
+- `server`: API routes, PostgreSQL payment/public-request adapters and scheduled jobs, plus a
+  separately bound private health/metrics listener.
 - `web`: merchant creation, sharing, guest checkout and local IndexedDB history.
 
 ## Operator-liquidity conversion bridge
@@ -68,15 +69,20 @@ The fake treasury callback enters through `POST /api/v1/provider-callbacks/fake`
 the timestamp and exact raw bytes. Verification and normalization happen before the event is
 matched against the retained opaque reference, direction, assets and integer amounts.
 
-Intent creation atomically stores the payment intent, bridge, source/destination legs, reservation,
-waiting obligation and payload-free source outbox. It then vaults the destination and calls the
-fake source rail outside the transaction with a distinct collection key. Completion stores only
-opaque references/tokens and moves the intent to `awaiting_source_payment`.
+Merchant request creation stores only the durable public envelope and safe quotes, while its raw
+destination receives an opaque token in the separate development memory vault. No source rail is
+called at this point. When a payer confirms one option, the server first resolves that token; a
+missing token returns an unavailable response before intent staging or any rail call. A successful
+resolution then atomically stores the payment intent, bridge, source/destination legs, reservation,
+waiting obligation and payload-free source outbox before calling the fake source rail outside the
+transaction with a distinct collection key.
 
-Provider-event processing row-locks one normalized event and atomically advances the source leg,
+Provider-event processing row-locks one normalized event and retains its exact UUID outside the
+transaction. If application rolls back, isolation locks and rechecks only that UUID; a row already
+processed by another worker is a no-op. A bounded iterative scan lets later eligible events
+proceed without recursive skipping. Successful application atomically advances the source leg,
 journal, obligation, destination outbox and processed marker. Destination work uses an expiring
-database lease and creates one durable logical attempt before the fake rail call. Coordinator
-instances hold no authoritative lifecycle state and may be restarted.
+database lease and creates one durable logical attempt before the fake rail call.
 
 `treasury_inventory_positions` persists one opening and one current integer balance per asset.
 Initialization is insert-only: later environment changes cannot rewrite the book. Creation locks
@@ -87,7 +93,10 @@ reservation and lifecycle update share one transaction, so duplicates cannot mov
 Fake-provider balances remain separate external reports; bounded mismatch metrics expose
 differences without rewriting either side.
 
-Conclusive source settlement after expiry or conclusive source failure uses a narrow late-event
+Conclusive source failure marks the source leg and waiting destination obligation failed, releases
+the active reservation exactly once, terminalizes the bridge/intent and creates no destination or
+refund work. Timeout/unknown preserves the reservation and enters manual review. Conclusive source
+settlement after expiry or conclusive source failure uses a narrow late-event
 transition: source value is journaled/credited once and one refund obligation is created without
 destination execution. Source-unknown manual review may resume destination work only while its
 opaque destination token, active reservation and destination deadline remain valid; otherwise it
@@ -118,9 +127,10 @@ PostgreSQL stores integer amounts, assets, direction, normalized status, separat
 settlement idempotency keys, opaque references/tokens, safe failure code, event ID/hash and
 lifecycle timestamps. It has no merchant profile, destination, invoice or raw callback column.
 
-The forward-only treasury migrations add bridge settlements and source/destination legs, liquidity
+The forward-only migrations add bridge settlements and source/destination legs, liquidity
 reservations, settlement obligations/attempts, reconciliation results, refund obligations,
-durable inventory, provider-event isolation metadata and append-only transport-attempt events.
+durable inventory, provider-event isolation metadata, append-only transport-attempt events and
+the minimal public request/option tables.
 Journal transactions are grouped by exchange but balanced independently for BTC and ZMW with
 positive integer debit/credit entries. Deferred triggers reject unbalanced commits, and
 UPDATE/DELETE triggers make journal history append-only.
@@ -142,11 +152,12 @@ registered public route templates, normalized callback outcomes and purge result
 listener is constructed only when `OPS_ENABLED=true`, requires a strong bearer token and never
 registers on the public Fastify instance.
 
-The public checkout projection is currently a separate, short-lived in-memory store. It is keyed
-by an opaque UUID, contains only the safe payer options required by guest checkout and is purged
-after intent retention. It is explicitly marked development-only: it is not durable, shared
-between processes or suitable for deployment. Destinations remain absent from both this
-projection and PostgreSQL.
+The public checkout envelope is keyed by a random UUID and shared across server instances through
+PostgreSQL. It contains one positive integer amount, receive asset, safe quote-option references,
+an opaque destination lookup token and explicit creation/expiry/purge timestamps. It contains no
+merchant label/reference, phone, Lightning address/invoice or customer identity. The development
+destination vault remains separate and non-durable; envelope durability does not make destination
+recovery production-safe.
 
 ## Browser state and routes
 
@@ -168,8 +179,9 @@ for merchant data.
 
 ## Lifecycle
 
-Quotes, intents and outbox rows have explicit lifecycle timestamps. API access opportunistically
-purges due rows; pg-boss also schedules an hourly purge. A due bridge is eligible only when its
+Public requests, quotes, intents and outbox rows have explicit lifecycle timestamps. API access
+opportunistically purges due public requests; pg-boss also removes them in the hourly operational
+purge. A due bridge is eligible only when its
 status is terminal, provider-finality grace has passed and no active reservation, unresolved
 obligation/refund, dead letter, event, outbox work, lease or reconciliation-review flag remains.
 Eligible children are deleted in foreign-key order before the bridge, intent and quote. The

@@ -11,7 +11,8 @@
   and keeps provider/direct states explicit.
 - IndexedDB schema v2 for local preferences, masked request summaries and receipts, including v1
   migration, clear-data confirmation and a visible session-memory fallback.
-- Opaque public request URL with no destination or URL-fragment payload.
+- Opaque, high-entropy public request URL backed by a minimal PostgreSQL checkout envelope with no
+  destination, merchant identity or URL-fragment payload.
 - QR, copy-link and Web Share UI with success/error feedback and fallback.
 - Installable production PWA metadata with Ntumba icons and a generic offline shell. Its explicit
   Cache Storage allowlist contains only public shell assets; API and route responses are never
@@ -49,6 +50,13 @@
   flags, dead letters and refund liabilities through a bounded provider-finality grace period.
 - Privacy-safe provider-event retry metadata/dead letters, bridge-targeted destination claims and
   append-only numbered transport-attempt history under a stable external idempotency key.
+- Exact provider-event failure isolation by selected event UUID, with row-locked recheck,
+  bounded non-recursive skipping and safe no-op behavior after another worker processes the row.
+- Conclusive source setup/provider failure terminalizes both legs' obligation, releases the
+  reservation once and leaves no destination/refund work; uncertain outcomes remain in review.
+- Durable multi-instance public request reads with integer amount, payer options, expiry/purge
+  timestamps and one opaque destination lookup token. Payment intent/source setup is deferred
+  until payer confirmation and fails closed if the separate memory vault cannot resolve the token.
 - Replacement fake rail adapters can share simulated remote-provider state for stronger
   provider-side idempotency restart tests.
 - Normalized provider-event schema with no raw callback body.
@@ -79,10 +87,8 @@
   envelope-encrypted store.
 - Live Lightning-address resolution or merchant-wallet settlement verification.
 - Independently verifiable direct-payment receipts.
-- Durable, multi-instance public request storage. The current opaque public request store is
-  process memory only, marked development-only, and disappears on restart.
-- Capability discovery from live providers. Fake-provider request options are prepared when the
-  merchant creates the request and refreshed when the customer selects one.
+- Capability discovery from live providers. Durable request options still use deterministic fake
+  quotes and are revalidated when the customer confirms one.
 - Production retention decision, legal/provider review or deployment.
 - Durable destination storage, real reconciliation, automated refunds, live treasury/rate circuit
   breakers, real-money alerts, operator write controls

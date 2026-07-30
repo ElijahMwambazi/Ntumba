@@ -1,8 +1,8 @@
-import type { PayerMethod, PublicRequestOption } from "@ntumba/contracts";
-import { useQuery } from "@tanstack/react-query";
+import type { PayerMethod, PaymentIntentResponse, PublicRequestOption } from "@ntumba/contracts";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import { getPaymentIntent, getPublicRequest } from "../api.js";
+import { createPublicRequestPaymentIntent, getPaymentIntent, getPublicRequest } from "../api.js";
 import { Countdown, GuestShell, Icon, InlineStatus } from "../components.js";
 import { isExpired, plainStatus } from "../payment-ui.js";
 
@@ -10,6 +10,8 @@ export function CheckoutPage() {
   const { publicId } = useParams({ from: "/pay/$publicId" });
   const [selectedMethod, setSelectedMethod] = useState<PayerMethod>();
   const [selectedOption, setSelectedOption] = useState<PublicRequestOption>();
+  const [intent, setIntent] = useState<PaymentIntentResponse>();
+  const [intentIdempotencyKey, setIntentIdempotencyKey] = useState(() => crypto.randomUUID());
   const [started, setStarted] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectionError, setSelectionError] = useState("");
@@ -21,16 +23,34 @@ export function CheckoutPage() {
     retry: false,
   });
   const paymentStatus = useQuery({
-    enabled: started && Boolean(selectedOption),
-    queryKey: ["payment-intent", selectedOption?.intent.paymentIntentId],
-    queryFn: () => getPaymentIntent(selectedOption?.intent.paymentIntentId ?? ""),
+    enabled: started && Boolean(intent),
+    queryKey: ["payment-intent", intent?.paymentIntentId],
+    queryFn: () => getPaymentIntent(intent?.paymentIntentId ?? ""),
     refetchInterval: 5_000,
     retry: false,
+  });
+  const startPayment = useMutation({
+    mutationFn: (option: PublicRequestOption) =>
+      createPublicRequestPaymentIntent(publicId, {
+        idempotencyKey: intentIdempotencyKey,
+        payerMethod: option.payerMethod,
+      }),
+    onError: (error) => {
+      setSelectionError(
+        error instanceof Error ? error.message : "This payment request is unavailable.",
+      );
+    },
+    onSuccess: (created) => {
+      setIntent(created);
+      setStarted(true);
+    },
   });
 
   async function selectMethod(method: PayerMethod) {
     setSelectionError("");
     setStarted(false);
+    setIntent(undefined);
+    setIntentIdempotencyKey(crypto.randomUUID());
     setSelectedMethod(method);
     const refreshed = await paymentRequest.refetch();
     const option = refreshed.data?.options.find((item) => item.payerMethod === method);
@@ -39,25 +59,25 @@ export function CheckoutPage() {
       setSelectedOption(undefined);
       return;
     }
-    if (isExpired(option.intent.quote.expiresAt)) {
+    if (isExpired(option.quote.expiresAt)) {
       setExpired(true);
     }
     setSelectedOption(option);
   }
 
   async function copyInvoice() {
-    if (selectedOption?.intent.checkout.type !== "direct_lightning") return;
+    if (intent?.checkout.type !== "direct_lightning") return;
     try {
-      await navigator.clipboard.writeText(selectedOption.intent.checkout.paymentRequest);
+      await navigator.clipboard.writeText(intent.checkout.paymentRequest);
       setCopied(true);
     } catch {
       setCopied(false);
     }
   }
 
-  const status = paymentStatus.data?.status ?? selectedOption?.intent.status;
+  const status = paymentStatus.data?.status ?? intent?.status;
   const statusPresentation = status ? plainStatus[status] : undefined;
-  const checkout = selectedOption?.intent.checkout;
+  const checkout = intent?.checkout;
 
   return (
     <GuestShell>
@@ -81,10 +101,7 @@ export function CheckoutPage() {
       ) : (
         <section>
           <p className="eyebrow">Payment request</p>
-          <h1 className="page-title">{paymentRequest.data.merchantLabel ?? "Payment request"}</h1>
-          {paymentRequest.data.reference ? (
-            <p className="page-subtitle">For {paymentRequest.data.reference}</p>
-          ) : null}
+          <h1 className="page-title">Payment request</h1>
 
           <div className="surface-card summary-card">
             <span className="field-help">Amount</span>
@@ -151,18 +168,18 @@ export function CheckoutPage() {
               <div className="quote-amounts">
                 <div className="quote-amount">
                   <span>You pay</span>
-                  <strong>{selectedOption.intent.quote.payerSends.display}</strong>
+                  <strong>{selectedOption.quote.payerSends.display}</strong>
                 </div>
                 <div className="quote-amount">
                   <span>Merchant receives</span>
-                  <strong>{selectedOption.intent.quote.merchantReceives.display}</strong>
+                  <strong>{selectedOption.quote.merchantReceives.display}</strong>
                 </div>
               </div>
               <div className="quote-details">
-                <span>Rate: {selectedOption.intent.quote.exchangeRate}</span>
-                <span>Fee: K{selectedOption.intent.quote.feeZmw}</span>
+                <span>Rate: {selectedOption.quote.exchangeRate}</span>
+                <span>Fee: K{selectedOption.quote.feeZmw}</span>
                 <Countdown
-                  expiresAt={selectedOption.intent.quote.expiresAt}
+                  expiresAt={selectedOption.quote.expiresAt}
                   onExpire={() => setExpired(true)}
                 />
               </div>
@@ -176,17 +193,19 @@ export function CheckoutPage() {
               {!started ? (
                 <button
                   className="primary-button full-width"
-                  disabled={expired}
-                  onClick={() => setStarted(true)}
+                  disabled={expired || startPayment.isPending}
+                  onClick={() => startPayment.mutate(selectedOption)}
                   type="button"
                 >
-                  {expired
-                    ? "Quote expired"
-                    : selectedOption.payerMethod === "BTC"
-                      ? checkout?.type === "direct_lightning"
-                        ? "Show Bitcoin invoice"
-                        : "Continue with Bitcoin"
-                      : "Continue with Mobile Money"}
+                  {startPayment.isPending
+                    ? "Preparing payment…"
+                    : expired
+                      ? "Quote expired"
+                      : selectedOption.payerMethod === "BTC"
+                        ? checkout?.type === "direct_lightning"
+                          ? "Show Bitcoin invoice"
+                          : "Continue with Bitcoin"
+                        : "Continue with Mobile Money"}
                 </button>
               ) : (
                 <div className="form-stack">

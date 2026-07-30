@@ -9,6 +9,7 @@ import { startJobs } from "./jobs.js";
 import { createOperationalSnapshotReader } from "./observability.js";
 import { PostgresPaymentStore } from "./postgres-payment-store.js";
 import { PostgresSettlementSagaRepository } from "./postgres-settlement-saga-repository.js";
+import { PostgresPublicRequestStore } from "./public-request-store.js";
 import { createFakeTreasuryRuntime } from "./treasury.js";
 
 const config = loadConfig();
@@ -17,13 +18,14 @@ const store = new PostgresPaymentStore(database, config);
 const sagaRepository = new PostgresSettlementSagaRepository(database, config);
 await sagaRepository.initializeInventory();
 const treasury = createFakeTreasuryRuntime(config, sagaRepository);
+const publicRequestStore = new PostgresPublicRequestStore(database, store);
 const metrics = new NtumbaMetrics({
   bitcoinRailMode: config.BITCOIN_LIQUIDITY_RAIL_MODE,
   buildCommit: config.NTUMBA_BUILD_COMMIT,
   bridgeMode: config.BRIDGE_ENGINE_MODE,
   jobsEnabled: config.JOBS_ENABLED,
   mobileMoneyRailMode: config.MOBILE_MONEY_LIQUIDITY_RAIL_MODE,
-  publicRequestStore: "development_non_durable",
+  publicRequestStore: "postgres_durable_envelope",
   rateMode: config.RATE_PROVIDER_MODE,
   startedAt: new Date(),
 });
@@ -36,9 +38,10 @@ const app = await buildApp(
       callbackSecret: config.FAKE_PROVIDER_CALLBACK_SECRET,
     }),
     metrics,
+    publicRequestDestinationVault: treasury.vault,
     store,
   },
-  undefined,
+  publicRequestStore,
   metrics,
 );
 

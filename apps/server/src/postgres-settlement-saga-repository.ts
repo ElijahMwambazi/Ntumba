@@ -36,6 +36,17 @@ import type {
 import { and, asc, count, desc, eq, isNull, or, sql, sum } from "drizzle-orm";
 
 type BridgeRow = typeof bridgeSettlements.$inferSelect;
+const PROVIDER_EVENT_SCAN_LIMIT = 100;
+
+class ProviderEventProcessingFailure extends Error {
+  constructor(
+    readonly eventId: string,
+    readonly safeCode: string,
+  ) {
+    super("A normalized provider event could not be applied.");
+    this.name = "ProviderEventProcessingFailure";
+  }
+}
 
 function mapSettlement(
   row: BridgeRow,
@@ -459,11 +470,21 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       assertTransition(row.status, status);
       await transaction
         .update(bridgeSettlements)
-        .set({ failureCode, status, updatedAt: now })
+        .set({
+          destinationLookupToken: outcome === "failure" ? null : row.destinationLookupToken,
+          failureCode,
+          status,
+          updatedAt: now,
+        })
         .where(eq(bridgeSettlements.id, settlementId));
       await transaction
         .update(paymentIntents)
-        .set({ failureCode, status, updatedAt: now })
+        .set({
+          destinationToken: outcome === "failure" ? null : undefined,
+          failureCode,
+          status,
+          updatedAt: now,
+        })
         .where(eq(paymentIntents.id, row.paymentIntentId));
       await transaction
         .update(bridgeSettlementLegs)
@@ -488,6 +509,10 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
               eq(liquidityReservations.status, "active"),
             ),
           );
+        await transaction
+          .update(settlementObligations)
+          .set({ failureCode, status: "failed", updatedAt: now })
+          .where(eq(settlementObligations.bridgeSettlementId, settlementId));
       } else {
         await transaction
           .update(settlementObligations)
@@ -496,7 +521,11 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       }
       await transaction
         .update(providerIntentOutbox)
-        .set({ lastFailureCode: failureCode, updatedAt: now })
+        .set({
+          lastFailureCode: failureCode,
+          processedAt: outcome === "failure" ? now : null,
+          updatedAt: now,
+        })
         .where(eq(providerIntentOutbox.paymentIntentId, row.paymentIntentId));
     });
     return this.required(settlementId);
@@ -620,16 +649,22 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
   }
 
   async processNextProviderEvent(now: Date): Promise<ProviderEventApplication | null> {
-    try {
-      return await this.applyNextProviderEvent(now);
-    } catch (error) {
-      await this.isolateNextProviderEvent(now, safeProviderEventFailureCode(error));
-      return this.processNextProviderEvent(now);
+    for (let scanned = 0; scanned < PROVIDER_EVENT_SCAN_LIMIT; scanned += 1) {
+      try {
+        return await this.applyNextProviderEvent(now);
+      } catch (error) {
+        if (!(error instanceof ProviderEventProcessingFailure)) {
+          throw error;
+        }
+        await this.isolateProviderEvent(error.eventId, now, error.safeCode);
+      }
     }
+    return null;
   }
 
   private async applyNextProviderEvent(now: Date): Promise<ProviderEventApplication | null> {
-    const result = await this.database.transaction(async (transaction) => {
+    let selectedEventId: string | null = null;
+    const pendingResult = this.database.transaction(async (transaction) => {
       const locked = await transaction.execute<{
         id: string;
         normalized_status: typeof providerEvents.$inferSelect.normalizedStatus;
@@ -649,6 +684,7 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       if (!event) {
         return null;
       }
+      selectedEventId = event.id;
       const [bridge] = await transaction
         .select()
         .from(bridgeSettlements)
@@ -866,6 +902,10 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
           failureCode = "SOURCE_PAYMENT_FAILED";
           deleteToken = bridge.destinationLookupToken;
           await transaction
+            .update(settlementObligations)
+            .set({ failureCode, status: "failed", updatedAt: now })
+            .where(eq(settlementObligations.bridgeSettlementId, bridge.id));
+          await transaction
             .update(bridgeSettlementLegs)
             .set({ failureCode, status: "failed", updatedAt: now })
             .where(eq(bridgeSettlementLegs.id, sourceLeg.id));
@@ -878,6 +918,14 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
                 eq(liquidityReservations.status, "active"),
               ),
             );
+          await transaction
+            .update(bridgeSettlements)
+            .set({ destinationLookupToken: null })
+            .where(eq(bridgeSettlements.id, bridge.id));
+          await transaction
+            .update(paymentIntents)
+            .set({ destinationToken: null })
+            .where(eq(paymentIntents.id, bridge.paymentIntentId));
         }
       } else if (
         bridge.status === "awaiting_source_payment" ||
@@ -904,6 +952,15 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
         .set({ processedAt: now })
         .where(and(eq(providerEvents.id, event.id), isNull(providerEvents.processedAt)));
       return { deleteToken, settlementId: bridge.id };
+    });
+    const result = await pendingResult.catch((error: unknown) => {
+      if (!selectedEventId) {
+        throw error;
+      }
+      throw new ProviderEventProcessingFailure(
+        selectedEventId,
+        safeProviderEventFailureCode(error),
+      );
     });
     if (!result) {
       return null;
@@ -1797,7 +1854,7 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
     };
   }
 
-  private async isolateNextProviderEvent(now: Date, safeCode: string): Promise<void> {
+  private async isolateProviderEvent(eventId: string, now: Date, safeCode: string): Promise<void> {
     await this.database.transaction(async (transaction) => {
       const locked = await transaction.execute<{
         id: string;
@@ -1806,11 +1863,11 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
       }>(sql`
         select id, payment_intent_id, processing_attempt_count
         from provider_events
-        where processed_at is null
+        where id = ${eventId}
+          and processed_at is null
           and dead_lettered_at is null
           and next_processing_at <= ${now}
-        order by received_at
-        for update skip locked
+        for update
         limit 1
       `);
       const event = locked.rows[0];
@@ -1829,7 +1886,13 @@ export class PostgresSettlementSagaRepository implements SettlementSagaRepositor
           nextProcessingAt: new Date(now.getTime() + backoffSeconds * 1_000),
           processingAttemptCount: attemptCount,
         })
-        .where(eq(providerEvents.id, event.id));
+        .where(
+          and(
+            eq(providerEvents.id, event.id),
+            isNull(providerEvents.processedAt),
+            isNull(providerEvents.deadLetteredAt),
+          ),
+        );
       if (!deadLettered) {
         return;
       }
