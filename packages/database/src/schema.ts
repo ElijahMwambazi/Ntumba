@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   pgEnum,
@@ -43,6 +44,7 @@ export const paymentStatus = pgEnum("payment_status", [
   "manual_review",
 ]);
 export const paymentAsset = pgEnum("payment_asset", ["BTC", "ZMW"]);
+export const publicRequestStatus = pgEnum("public_request_status", ["open", "claimed", "expired"]);
 export const providerEventStatus = pgEnum("provider_event_status", [
   "source_pending",
   "source_confirming",
@@ -148,6 +150,7 @@ export const publicPaymentRequests = pgTable(
     idempotencyKey: text("idempotency_key").notNull(),
     amountZmwMinor: bigint("amount_zmw_minor", { mode: "bigint" }).notNull(),
     receiveAsset: paymentAsset("receive_asset").notNull(),
+    status: publicRequestStatus("status").default("open").notNull(),
     destinationLookupToken: text("destination_lookup_token").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -155,6 +158,7 @@ export const publicPaymentRequests = pgTable(
   },
   (table) => [
     uniqueIndex("public_payment_requests_idempotency_key_uidx").on(table.idempotencyKey),
+    index("public_payment_requests_open_expiry_idx").on(table.status, table.expiresAt),
     index("public_payment_requests_expires_at_idx").on(table.expiresAt),
     index("public_payment_requests_purge_at_idx").on(table.purgeAt),
     check("public_payment_requests_amount_positive", sql`${table.amountZmwMinor} > 0`),
@@ -174,16 +178,87 @@ export const publicPaymentRequestOptions = pgTable(
       .references(() => publicPaymentRequests.id, { onDelete: "cascade" }),
     payerMethod: paymentAsset("payer_method").notNull(),
     direction: paymentDirection("direction").notNull(),
-    quoteId: uuid("quote_id")
-      .notNull()
-      .references(() => quotes.id),
   },
   (table) => [
     uniqueIndex("public_payment_request_options_method_uidx").on(
       table.publicRequestId,
       table.payerMethod,
     ),
-    uniqueIndex("public_payment_request_options_quote_uidx").on(table.quoteId),
+    check(
+      "public_payment_request_options_direction_check",
+      sql`(${table.payerMethod} = 'BTC' AND ${table.direction} IN ('btc_to_btc', 'btc_to_zmw')) OR (${table.payerMethod} = 'ZMW' AND ${table.direction} = 'zmw_to_btc')`,
+    ),
+  ],
+);
+
+export const publicPaymentRequestQuoteBindings = pgTable(
+  "public_payment_request_quote_bindings",
+  {
+    id: uuid("id").primaryKey(),
+    publicRequestId: uuid("public_request_id")
+      .notNull()
+      .references(() => publicPaymentRequests.id, { onDelete: "cascade" }),
+    quoteId: uuid("quote_id")
+      .notNull()
+      .references(() => quotes.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payerMethod: paymentAsset("payer_method").notNull(),
+    direction: paymentDirection("direction").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("public_payment_request_quote_bindings_quote_uidx").on(table.quoteId),
+    uniqueIndex("public_payment_request_quote_bindings_idempotency_uidx").on(
+      table.publicRequestId,
+      table.idempotencyKey,
+    ),
+    uniqueIndex("public_payment_request_quote_bindings_request_quote_uidx").on(
+      table.publicRequestId,
+      table.quoteId,
+    ),
+    index("public_payment_request_quote_bindings_request_method_idx").on(
+      table.publicRequestId,
+      table.payerMethod,
+      table.createdAt,
+    ),
+    check(
+      "public_payment_request_quote_bindings_direction_check",
+      sql`(${table.payerMethod} = 'BTC' AND ${table.direction} IN ('btc_to_btc', 'btc_to_zmw')) OR (${table.payerMethod} = 'ZMW' AND ${table.direction} = 'zmw_to_btc')`,
+    ),
+  ],
+);
+
+export const publicPaymentRequestClaims = pgTable(
+  "public_payment_request_claims",
+  {
+    publicRequestId: uuid("public_request_id")
+      .primaryKey()
+      .references(() => publicPaymentRequests.id, { onDelete: "cascade" }),
+    selectionIdempotencyKey: text("selection_idempotency_key").notNull(),
+    quoteId: uuid("quote_id").notNull(),
+    payerMethod: paymentAsset("payer_method").notNull(),
+    direction: paymentDirection("direction").notNull(),
+    paymentIntentId: uuid("payment_intent_id").notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("public_payment_request_claims_selection_idx").on(
+      table.publicRequestId,
+      table.selectionIdempotencyKey,
+    ),
+    uniqueIndex("public_payment_request_claims_intent_uidx").on(table.paymentIntentId),
+    foreignKey({
+      columns: [table.publicRequestId, table.quoteId],
+      foreignColumns: [
+        publicPaymentRequestQuoteBindings.publicRequestId,
+        publicPaymentRequestQuoteBindings.quoteId,
+      ],
+      name: "public_payment_request_claims_request_quote_fk",
+    }).onDelete("cascade"),
+    check(
+      "public_payment_request_claims_direction_check",
+      sql`(${table.payerMethod} = 'BTC' AND ${table.direction} IN ('btc_to_btc', 'btc_to_zmw')) OR (${table.payerMethod} = 'ZMW' AND ${table.direction} = 'zmw_to_btc')`,
+    ),
   ],
 );
 

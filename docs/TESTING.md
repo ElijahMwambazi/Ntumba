@@ -16,7 +16,9 @@
 - API tests use Fastify injection with an in-memory safe-state repository, including raw callback
   signature, intent matching, duplicate and privacy behavior. Failure injection proves a pending
   provider-intent outbox resumes with the same idempotency key after a provider timeout. Public
-  request tests prove opaque/idempotent IDs and fail closed before source setup after vault loss.
+  request tests prove independent request/quote lifetimes, fresh/replacement quotes, creation
+  conflicts, cross-request quote rejection, single concurrent claim, winner replay and fail-closed
+  destination loss before claim/source setup.
 - Storage tests cover schema-version serialization, loading, deletion, v1 migration and
   session-memory fallback.
 - Sharing tests cover native Web Share and unavailable fallback.
@@ -55,8 +57,9 @@ yarn audit:dependencies
 disposable PostgreSQL database and validates positive/nonnegative integer checks, inventory
 locking/mutation, unresolved retention, terminal foreign-key purge order, exact poisoned-event
 isolation under concurrent workers, conclusive source failures, durable public-request restart and
-purge behavior, targeted leases, append-only attempt/journal triggers and deferred per-asset
-journal balance enforcement.
+purge behavior, concurrent one-time claims, pre-dispatch recovery, post-provider-success response
+recovery without a second source setup, targeted leases, append-only attempt/journal triggers and
+deferred per-asset journal balance enforcement.
 
 ## Continuous integration
 
@@ -109,7 +112,12 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 - The guest checkout has no merchant navigation and exposes only supported payment methods.
 - Request links use opaque public IDs and contain no URL-fragment destination payload.
 - Public request envelopes survive store/server replacement, contain no merchant identity or raw
-  destination fields, purge when due and fail before either fake source rail if the vault is lost.
+  destination fields, purge when due and fail before claim or either fake source rail if the vault
+  is lost.
+- Public requests outlive individual quotes; selection creates a fresh bound quote and expiry
+  offers a replacement while the request remains open.
+- Exactly one concurrent selection claims a request. A winning retry returns the same intent and
+  checkout; a different key conflicts, and provider unknown/failure never reopens the request.
 - Clear local data requires confirmation and does not imply server-side deletion.
 - Active navigation has a non-colour cue and tap targets are at least 48px.
 - The first local Get paid visit expands the appropriate quick guide and stores only the local
@@ -129,7 +137,8 @@ changing dependencies. Gitleaks uses `.gitleaks.toml`; allowlist changes require
 
 `tests/e2e/merchant.spec.ts` covers:
 
-- Merchant creation, opaque sharing, copy feedback, guest payer choice and local Activity.
+- Merchant creation, opaque sharing, copy feedback, guest payer choice, explicit fresh-quote
+  confirmation and local Activity.
 - Progressive disclosure of optional reference and destination controls.
 - Settings persistence and cancel/confirm clear-data behavior.
 - Expired quote handling and direct Bitcoin remaining unverified.

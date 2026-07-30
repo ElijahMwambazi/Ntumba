@@ -4,6 +4,7 @@ import {
   type CheckoutInstructions,
   type CreatePaymentIntentRequest,
   createPaymentIntentRequestSchema,
+  type PaymentIntentResponse,
   paymentIntentResponseSchema,
   paymentIntentStatusResponseSchema,
 } from "@ntumba/contracts";
@@ -118,12 +119,54 @@ interface PaymentIntentErrors {
   serviceUnavailable(message: string): Error;
 }
 
+function providerCheckoutFor(intent: StoredPaymentIntent): CheckoutInstructions | undefined {
+  if (intent.direction === "btc_to_btc" || !intent.providerReference) {
+    return undefined;
+  }
+  return {
+    checkoutUrl:
+      intent.direction === "btc_to_zmw"
+        ? `https://treasury.invalid/lightning/${intent.providerReference}`
+        : "https://treasury.invalid/mobile-money",
+    instructions:
+      intent.direction === "btc_to_zmw"
+        ? "Pay the simulated operator Lightning invoice."
+        : "Approve the simulated Lipila mobile-money collection.",
+    providerReference: intent.providerReference,
+    type: "provider",
+  };
+}
+
+export async function resumeDurableProviderIntent(
+  dependencies: PaymentRouteDependencies,
+  paymentIntentId: string,
+  quoteId: string,
+): Promise<PaymentIntentResponse | undefined> {
+  const [intent, quote] = await Promise.all([
+    dependencies.store.getIntent(paymentIntentId),
+    dependencies.store.getQuote(quoteId),
+  ]);
+  const checkout = intent ? providerCheckoutFor(intent) : undefined;
+  if (!intent || !quote || intent.quoteId !== quoteId || !checkout) {
+    return undefined;
+  }
+  return {
+    checkout,
+    direction: intent.direction,
+    expiresAt: intent.expiresAt.toISOString(),
+    paymentIntentId: intent.id,
+    quote: quote.response,
+    status: intent.status,
+  };
+}
+
 export async function createPaymentIntentForRequest(
   config: NtumbaConfig,
   dependencies: PaymentRouteDependencies,
   input: CreatePaymentIntentRequest,
   errors: PaymentIntentErrors,
   now = new Date(),
+  allocatedPaymentIntentId?: string,
 ) {
   await purgeWithMetrics(dependencies.store, dependencies.metrics, "opportunistic", now);
   const quote = await dependencies.store.getQuote(input.quoteId);
@@ -140,86 +183,29 @@ export async function createPaymentIntentForRequest(
   }
 
   const existing = await dependencies.store.findIntentByIdempotencyKey(input.idempotencyKey);
-  if (!existing && new Date(quote.response.expiresAt).getTime() <= now.getTime()) {
+  if (existing && allocatedPaymentIntentId && existing.id !== allocatedPaymentIntentId) {
+    throw errors.conflict("The durable claim is bound to another payment intent.");
+  }
+  if (
+    !existing &&
+    !allocatedPaymentIntentId &&
+    new Date(quote.response.expiresAt).getTime() <= now.getTime()
+  ) {
     throw errors.gone("The quote has expired. Create a new quote.");
   }
-  if (existing) {
-    if (existing.quoteId !== input.quoteId || existing.direction !== input.direction) {
-      throw errors.conflict("The idempotency key is already bound to another payment request.");
-    }
-    let checkout: CheckoutInstructions;
-    let intent = existing;
-    if (input.direction === "btc_to_btc") {
-      if (quote.merchantAmountSats === null) {
-        throw new Error("Direct quote did not include a satoshi amount.");
-      }
-      const directInvoice = await dependencies.directLightningProvider.prepareMerchantInvoice({
-        amountSats: quote.merchantAmountSats,
-        destination: input.destination,
-        paymentReference: existing.id,
-      });
-      checkout = {
-        merchantOwned: true,
-        paymentRequest: directInvoice.paymentRequest,
-        type: "direct_lightning",
-        verification: "unverified",
-      };
-    } else {
-      const dispatched = await dispatchProviderIntent(config, dependencies, input, intent, quote);
-      checkout = dispatched.checkout;
-      intent = dispatched.intent;
-    }
-    return {
-      checkout,
-      direction: intent.direction,
-      expiresAt: intent.expiresAt.toISOString(),
-      paymentIntentId: intent.id,
-      quote: quote.response,
-      status: intent.status,
-    };
+  if (existing && (existing.quoteId !== input.quoteId || existing.direction !== input.direction)) {
+    throw errors.conflict("The idempotency key is already bound to another payment request.");
   }
 
-  const paymentIntentId = randomUUID();
+  const paymentIntentId = existing?.id ?? allocatedPaymentIntentId ?? randomUUID();
   const retention = createRetentionWindow(
     now,
     config.QUOTE_TTL_SECONDS,
     config.INTENT_RETENTION_SECONDS,
   );
-  let intent: StoredPaymentIntent;
-  let checkout: CheckoutInstructions;
-
-  if (input.direction === "btc_to_btc") {
-    if (quote.merchantAmountSats === null) {
-      throw new Error("Direct quote did not include a satoshi amount.");
-    }
-    const directInvoice = await dependencies.directLightningProvider.prepareMerchantInvoice({
-      amountSats: quote.merchantAmountSats,
-      destination: input.destination,
-      paymentReference: paymentIntentId,
-    });
-    checkout = {
-      merchantOwned: true,
-      paymentRequest: directInvoice.paymentRequest,
-      type: "direct_lightning",
-      verification: "unverified",
-    };
-    intent = {
-      createdAt: now,
-      destinationToken: null,
-      direction: input.direction,
-      expiresAt: directInvoice.expiresAt,
-      failureCode: null,
-      id: paymentIntentId,
-      idempotencyKey: input.idempotencyKey,
-      provider: null,
-      providerReference: null,
-      purgeAt: retention.purgeAt,
-      quoteId: quote.response.quoteId,
-      status: "direct_payment_pending",
-      updatedAt: now,
-    };
-  } else {
-    intent = {
+  let intent: StoredPaymentIntent =
+    existing ??
+    ({
       createdAt: now,
       destinationToken: null,
       direction: input.direction,
@@ -227,20 +213,61 @@ export async function createPaymentIntentForRequest(
       failureCode: null,
       id: paymentIntentId,
       idempotencyKey: input.idempotencyKey,
-      provider: "fake_treasury",
+      provider: input.direction === "btc_to_btc" ? null : "fake_treasury",
       providerReference: null,
       purgeAt: retention.purgeAt,
       quoteId: quote.response.quoteId,
       status: "quote_locked",
       updatedAt: now,
-    };
-    const dispatched = await dispatchProviderIntent(config, dependencies, input, intent, quote);
-    checkout = dispatched.checkout;
-    intent = dispatched.intent;
-  }
+    } satisfies StoredPaymentIntent);
+  let checkout: CheckoutInstructions;
 
   if (input.direction === "btc_to_btc") {
-    intent = await dependencies.store.saveIntent(intent);
+    if (quote.merchantAmountSats === null) {
+      throw new Error("Direct quote did not include a satoshi amount.");
+    }
+    if (!existing) {
+      intent = await dependencies.store.saveIntent(intent);
+      if (intent.id !== paymentIntentId) {
+        throw errors.conflict("The idempotency key is already bound to another payment request.");
+      }
+    }
+    const directInvoice = await dependencies.directLightningProvider.prepareMerchantInvoice({
+      amountSats: quote.merchantAmountSats,
+      destination: input.destination,
+      paymentReference: paymentIntentId,
+    });
+    if (intent.providerReference && intent.providerReference !== directInvoice.paymentHash) {
+      throw errors.conflict("Direct invoice recovery returned a conflicting payment reference.");
+    }
+    intent = await dependencies.store.completeDirectIntent(intent.id, {
+      expiresAt: directInvoice.expiresAt,
+      providerReference: directInvoice.paymentHash,
+      updatedAt: new Date(),
+    });
+    checkout = {
+      merchantOwned: true,
+      paymentRequest: directInvoice.paymentRequest,
+      type: "direct_lightning",
+      verification: "unverified",
+    };
+  } else {
+    if (existing?.providerReference) {
+      const resumedCheckout = providerCheckoutFor(existing);
+      if (!resumedCheckout) {
+        throw new Error("A conversion intent has no recoverable provider checkout.");
+      }
+      checkout = resumedCheckout;
+    } else {
+      if (existing && existing.status !== "quote_locked") {
+        throw errors.conflict(
+          "The source setup outcome requires review and this request remains claimed.",
+        );
+      }
+      const dispatched = await dispatchProviderIntent(config, dependencies, input, intent, quote);
+      checkout = dispatched.checkout;
+      intent = dispatched.intent;
+    }
   }
   if (intent.quoteId !== input.quoteId || intent.direction !== input.direction) {
     throw errors.conflict("The idempotency key is already bound to another payment request.");

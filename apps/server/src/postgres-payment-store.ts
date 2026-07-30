@@ -14,6 +14,7 @@ import type { BridgeEventStatus } from "@ntumba/providers";
 import { and, asc, between, count, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type {
   AppendProviderEventResult,
+  DirectIntentCompletion,
   PaymentStore,
   ProviderIntentCompletion,
   StoredPaymentIntent,
@@ -265,6 +266,30 @@ export class PostgresPaymentStore implements PaymentStore {
 
       return this.mapIntent(completedRow);
     });
+  }
+
+  async completeDirectIntent(
+    paymentIntentId: string,
+    completion: DirectIntentCompletion,
+  ): Promise<StoredPaymentIntent> {
+    const [completed] = await this.database
+      .update(paymentIntents)
+      .set({
+        expiresAt: completion.expiresAt,
+        providerReference: completion.providerReference,
+        status: "direct_payment_pending",
+        updatedAt: completion.updatedAt,
+      })
+      .where(and(eq(paymentIntents.id, paymentIntentId), eq(paymentIntents.status, "quote_locked")))
+      .returning();
+    if (completed) {
+      return this.mapIntent(completed);
+    }
+    const existing = await this.getIntent(paymentIntentId);
+    if (!existing) {
+      throw new Error("Direct payment completion has no staged intent.");
+    }
+    return existing;
   }
 
   async recordProviderIntentFailure(

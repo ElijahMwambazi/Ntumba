@@ -20,9 +20,12 @@
   valid obligation or creates one refund liability without an automatic destination payment.
 - Destination calls keep one external idempotency key while append-only numbered transport events
   retain failure/timeout/unknown/success history. Timeout and unknown are not automatically retried.
-- Integer-only amounts, short quote expiry and idempotency apply to every request.
-- Public request creation does not call a source rail. Payer confirmation first resolves the
-  transient destination; missing recovery fails closed before invoice/collection creation.
+- Integer-only amounts, independent public-request/quote expiry and idempotency apply throughout.
+- Merchant creation fixes no rate and calls no source rail. Payer confirmation first resolves the
+  transient destination, then row-locks one durable claim with a stable intent identity; missing
+  recovery fails closed before the claim or invoice/collection creation.
+- Exactly one claim may exist per public request. Losing keys conflict, winning retries reuse the
+  stable intent/provider keys, and timeout, unknown or conclusive setup failure never reopens it.
 - The bridge is disabled by default. Fake mode is rejected in production and contains no external
   call path or real credentials.
 

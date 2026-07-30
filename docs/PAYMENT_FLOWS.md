@@ -4,29 +4,36 @@
 
 1. Merchant enters an amount, chooses Mobile Money or Bitcoin to receive and supplies that
    destination. Reference is optional.
-2. Ntumba stores safe fake-rate quote options compatible with the receive asset. The merchant does
-   not choose the payer method and no source rail is called.
+2. Ntumba stores only the payer methods and directions compatible with the receive asset. The
+   merchant does not choose the payer method, no rate is fixed and no source rail is called.
 3. The server places the raw destination in its development-only memory vault and persists only a
    minimal PostgreSQL envelope with its opaque lookup token, integer amount and lifecycle times.
 4. The browser stores a masked local summary behind an unrelated `localId`.
 5. The merchant shares `/pay/:publicId`. There is no destination, invoice or checkout payload in
    the URL.
 
-Anyone with the link can open the request while it is retained. The opaque ID is access by
-possession, not payment proof. References are presentation data and should not contain secrets.
+The development request remains open for 15 minutes by default, independently of any 60-second
+quote. Anyone with the link can open it while it is open. The opaque ID is access by possession,
+not payment proof. References are presentation data and should not contain secrets.
 
 ## Guest method choice
 
 1. Guest opens `/pay/:publicId`.
 2. Checkout shows only payer methods supported by the request options.
-3. Selecting a method refreshes the public request and presents its amount, rate, fee and
-   countdown.
-4. One primary action first resolves the destination token. If it is missing, checkout fails
-   before creating an intent or calling either source rail.
-5. After successful recovery, bridge directions atomically stage the intent, two legs,
+3. Selecting a method creates a fresh integer-only quote bound to that request, payer method and
+   direction. An expired quote can be replaced while the request remains open.
+4. Checkout presents payer amount, merchant amount, rate, fee and countdown. The guest must
+   explicitly confirm this quote.
+5. Confirmation first resolves the destination token. If it is missing, checkout fails before
+   claiming the request, staging an intent or calling either source rail.
+6. A row-locked transaction changes the request from `open` to `claimed`, records the winning
+   selection key and quote, and allocates a stable payment-intent UUID. A different key receives a
+   conflict; the winning key resumes the same intent.
+7. After the durable claim, bridge directions atomically stage the intent, two legs,
    reservation, waiting obligation and source outbox before source setup. Direct Bitcoin obtains
-   or passes through the merchant-owned invoice.
-6. Expired options cannot continue. Direct payment stays labelled unverified until evidence
+   or passes through the merchant-owned invoice only after staging its intent.
+8. Expired quotes cannot claim an open request. Unknown or conclusive source-setup outcomes never
+   reopen a claimed request. Direct payment stays labelled unverified until evidence
    exists.
 
 ## BTC → BTC
@@ -90,6 +97,9 @@ append a new numbered transport attempt only after conclusive failure.
 ## State model
 
 ```text
+public request: open -> claimed
+                open -> expired
+
 created -> quote_locked -> awaiting_source_payment -> source_payment_confirming
         -> source_payment_settled -> destination_settlement_queued
         -> destination_settlement_processing -> settled

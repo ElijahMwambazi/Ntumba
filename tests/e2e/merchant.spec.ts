@@ -98,6 +98,8 @@ function quote(direction: keyof typeof quoteIds, amountZmw: string, expired = fa
 
 async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
   let published: Record<string, unknown> | undefined;
+  const latestQuotes = new Map<keyof typeof quoteIds, ReturnType<typeof quote>>();
+  let publicQuoteRequests = 0;
 
   await page.route("**/api/v1/quotes", async (route) => {
     const body = route.request().postDataJSON() as {
@@ -153,13 +155,13 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
           : payerMethod === "BTC"
             ? "btc_to_btc"
             : "zmw_to_btc";
-      return { payerMethod, quote: quote(direction, body.amountZmw, options.expired) };
+      return { direction, payerMethod };
     });
     published = {
       amountZmw: body.amountZmw,
       createdAt: new Date().toISOString(),
       developmentOnly: true,
-      expiresAt: options.expired ? new Date(Date.now() - 1_000).toISOString() : expiresIn(10),
+      expiresAt: expiresIn(15),
       options: requestOptions,
       publicId,
       receiveAsset: body.receiveAsset,
@@ -169,20 +171,19 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
 
   await page.route(`**/api/v1/public-requests/${publicId}`, async (route) => {
     if (!published) {
-      const directQuote = quote("btc_to_btc", "125.00", options.expired);
       published = {
         amountZmw: "125.00",
         createdAt: new Date().toISOString(),
         developmentOnly: true,
-        expiresAt: directQuote.expiresAt,
+        expiresAt: expiresIn(15),
         options: [
           {
+            direction: "btc_to_btc",
             payerMethod: "BTC",
-            quote: directQuote,
           },
           {
+            direction: "zmw_to_btc",
             payerMethod: "ZMW",
-            quote: quote("zmw_to_btc", "125.00", options.expired),
           },
         ],
         publicId,
@@ -190,6 +191,20 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
       };
     }
     await route.fulfill({ json: published });
+  });
+
+  await page.route(`**/api/v1/public-requests/${publicId}/quotes`, async (route) => {
+    publicQuoteRequests += 1;
+    const body = route.request().postDataJSON() as { payerMethod: "BTC" | "ZMW" };
+    const direction =
+      published?.receiveAsset === "ZMW"
+        ? "btc_to_zmw"
+        : body.payerMethod === "BTC"
+          ? "btc_to_btc"
+          : "zmw_to_btc";
+    const quoted = quote(direction, "125.00", options.expired && publicQuoteRequests === 1);
+    latestQuotes.set(direction, quoted);
+    await route.fulfill({ json: quoted, status: 201 });
   });
 
   await page.route(`**/api/v1/public-requests/${publicId}/payment-intents`, async (route) => {
@@ -200,7 +215,7 @@ async function mockPayments(page: Page, options: { expired?: boolean } = {}) {
         : body.payerMethod === "BTC"
           ? "btc_to_btc"
           : "zmw_to_btc";
-    const quoted = quote(direction, "125.00", options.expired);
+    const quoted = latestQuotes.get(direction) ?? quote(direction, "125.00");
     const direct = direction === "btc_to_btc";
     await route.fulfill({
       json: {
@@ -334,7 +349,7 @@ test.describe("mobile merchant and payer journey", () => {
     });
     await page.getByRole("button", { name: /Mobile Money Pay in Kwacha/ }).click();
     await expect(page.getByRole("heading", { name: "Your quote" })).toBeVisible();
-    await page.getByRole("button", { name: "Continue with Mobile Money" }).click();
+    await page.getByRole("button", { name: "Confirm and continue with Mobile Money" }).click();
     await expect(page.getByText("Waiting for payment", { exact: true })).toBeVisible();
     await expect(page.getByText("Development-only fake payment")).toBeVisible();
 
@@ -390,7 +405,13 @@ test.describe("mobile merchant and payer journey", () => {
     await page.goto(`/pay/${publicId}`);
     await page.getByRole("button", { name: /Bitcoin Pay from a Lightning wallet/ }).click();
     await expect(page.getByRole("button", { name: "Quote expired" })).toBeDisabled();
-    await expect(page.getByText(/ask the merchant for a new payment request/i)).toBeVisible();
+    await expect(page.getByText(/refresh it while the request remains open/i)).toBeVisible();
+    await page.getByRole("button", { name: "Refresh quote" }).click();
+    await expect(
+      page.getByRole("button", { name: "Confirm and show Bitcoin invoice" }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: "Confirm and show Bitcoin invoice" }).click();
+    await expect(page.getByText(/merchant-owned invoice has not been confirmed/i)).toBeVisible();
   });
 
   test("reports session-only storage when IndexedDB is unavailable", async ({ page }) => {

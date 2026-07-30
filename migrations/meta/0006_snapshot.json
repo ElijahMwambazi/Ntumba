@@ -1,0 +1,3014 @@
+{
+  "id": "87afb6fc-ef06-4d69-91f1-305511b35ea4",
+  "prevId": "9ee3a829-4a9c-4cba-b496-f6fb441cedb0",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.bridge_settlement_legs": {
+      "name": "bridge_settlement_legs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bridge_settlement_id": {
+          "name": "bridge_settlement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "bridge_leg_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset": {
+          "name": "asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "bridge_leg_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rail": {
+          "name": "rail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opaque_reference": {
+          "name": "opaque_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "bridge_settlement_legs_kind_uidx": {
+          "name": "bridge_settlement_legs_kind_uidx",
+          "columns": [
+            {
+              "expression": "bridge_settlement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlement_legs_idempotency_uidx": {
+          "name": "bridge_settlement_legs_idempotency_uidx",
+          "columns": [
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlement_legs_rail_reference_uidx": {
+          "name": "bridge_settlement_legs_rail_reference_uidx",
+          "columns": [
+            {
+              "expression": "rail",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "opaque_reference",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlement_legs_purge_at_idx": {
+          "name": "bridge_settlement_legs_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "bridge_settlement_legs_bridge_settlement_id_bridge_settlements_id_fk": {
+          "name": "bridge_settlement_legs_bridge_settlement_id_bridge_settlements_id_fk",
+          "tableFrom": "bridge_settlement_legs",
+          "tableTo": "bridge_settlements",
+          "columnsFrom": [
+            "bridge_settlement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.bridge_settlements": {
+      "name": "bridge_settlements",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "payment_intent_id": {
+          "name": "payment_intent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "payment_direction",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "payment_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_asset": {
+          "name": "source_asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_amount": {
+          "name": "source_amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_asset": {
+          "name": "destination_asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_amount": {
+          "name": "destination_amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "collection_idempotency_key": {
+          "name": "collection_idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settlement_idempotency_key": {
+          "name": "settlement_idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_lookup_token": {
+          "name": "destination_lookup_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "exchange_group_id": {
+          "name": "exchange_group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_payment_expires_at": {
+          "name": "source_payment_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_expires_at": {
+          "name": "destination_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "creation_fingerprint": {
+          "name": "creation_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reconciliation_review_required": {
+          "name": "reconciliation_review_required",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "bridge_settlements_payment_intent_uidx": {
+          "name": "bridge_settlements_payment_intent_uidx",
+          "columns": [
+            {
+              "expression": "payment_intent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlements_collection_key_uidx": {
+          "name": "bridge_settlements_collection_key_uidx",
+          "columns": [
+            {
+              "expression": "collection_idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlements_settlement_key_uidx": {
+          "name": "bridge_settlements_settlement_key_uidx",
+          "columns": [
+            {
+              "expression": "settlement_idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlements_status_idx": {
+          "name": "bridge_settlements_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlements_source_expiry_idx": {
+          "name": "bridge_settlements_source_expiry_idx",
+          "columns": [
+            {
+              "expression": "source_payment_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bridge_settlements_purge_at_idx": {
+          "name": "bridge_settlements_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "bridge_settlements_payment_intent_id_payment_intents_id_fk": {
+          "name": "bridge_settlements_payment_intent_id_payment_intents_id_fk",
+          "tableFrom": "bridge_settlements",
+          "tableTo": "payment_intents",
+          "columnsFrom": [
+            "payment_intent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.destination_settlement_outbox": {
+      "name": "destination_settlement_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "settlement_obligation_id": {
+          "name": "settlement_obligation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "available_at": {
+          "name": "available_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lease_token": {
+          "name": "lease_token",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lease_expires_at": {
+          "name": "lease_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "destination_settlement_outbox_obligation_uidx": {
+          "name": "destination_settlement_outbox_obligation_uidx",
+          "columns": [
+            {
+              "expression": "settlement_obligation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "destination_settlement_outbox_due_idx": {
+          "name": "destination_settlement_outbox_due_idx",
+          "columns": [
+            {
+              "expression": "processed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "available_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lease_expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "destination_settlement_outbox_purge_at_idx": {
+          "name": "destination_settlement_outbox_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "destination_settlement_outbox_settlement_obligation_id_settlement_obligations_id_fk": {
+          "name": "destination_settlement_outbox_settlement_obligation_id_settlement_obligations_id_fk",
+          "tableFrom": "destination_settlement_outbox",
+          "tableTo": "settlement_obligations",
+          "columnsFrom": [
+            "settlement_obligation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.liquidity_reservations": {
+      "name": "liquidity_reservations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bridge_settlement_id": {
+          "name": "bridge_settlement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset": {
+          "name": "asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "liquidity_reservation_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "released_at": {
+          "name": "released_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "liquidity_reservations_settlement_asset_uidx": {
+          "name": "liquidity_reservations_settlement_asset_uidx",
+          "columns": [
+            {
+              "expression": "bridge_settlement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "asset",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "liquidity_reservations_status_idx": {
+          "name": "liquidity_reservations_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "liquidity_reservations_purge_at_idx": {
+          "name": "liquidity_reservations_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "liquidity_reservations_bridge_settlement_id_bridge_settlements_id_fk": {
+          "name": "liquidity_reservations_bridge_settlement_id_bridge_settlements_id_fk",
+          "tableFrom": "liquidity_reservations",
+          "tableTo": "bridge_settlements",
+          "columnsFrom": [
+            "bridge_settlement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.payment_intents": {
+      "name": "payment_intents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "quote_id": {
+          "name": "quote_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "payment_direction",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_asset": {
+          "name": "source_asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "settlement_asset": {
+          "name": "settlement_asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_amount_zmw_minor": {
+          "name": "source_amount_zmw_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_amount_sats": {
+          "name": "source_amount_sats",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_amount_zmw_minor": {
+          "name": "settlement_amount_zmw_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "settlement_amount_sats": {
+          "name": "settlement_amount_sats",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "payment_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'created'"
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_reference": {
+          "name": "provider_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destination_token": {
+          "name": "destination_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "payment_intents_idempotency_key_uidx": {
+          "name": "payment_intents_idempotency_key_uidx",
+          "columns": [
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payment_intents_provider_reference_uidx": {
+          "name": "payment_intents_provider_reference_uidx",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_reference",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payment_intents_status_idx": {
+          "name": "payment_intents_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payment_intents_purge_at_idx": {
+          "name": "payment_intents_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "payment_intents_quote_id_quotes_id_fk": {
+          "name": "payment_intents_quote_id_quotes_id_fk",
+          "tableFrom": "payment_intents",
+          "tableTo": "quotes",
+          "columnsFrom": [
+            "quote_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.provider_events": {
+      "name": "provider_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "payment_intent_id": {
+          "name": "payment_intent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_event_id": {
+          "name": "provider_event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload_hash": {
+          "name": "payload_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "normalized_status": {
+          "name": "normalized_status",
+          "type": "provider_event_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processing_attempt_count": {
+          "name": "processing_attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "next_processing_at": {
+          "name": "next_processing_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_processing_failure_code": {
+          "name": "last_processing_failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dead_lettered_at": {
+          "name": "dead_lettered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "provider_events_provider_event_uidx": {
+          "name": "provider_events_provider_event_uidx",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_events_processing_idx": {
+          "name": "provider_events_processing_idx",
+          "columns": [
+            {
+              "expression": "processed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "dead_lettered_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "next_processing_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_events_purge_at_idx": {
+          "name": "provider_events_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "provider_events_payment_intent_id_payment_intents_id_fk": {
+          "name": "provider_events_payment_intent_id_payment_intents_id_fk",
+          "tableFrom": "provider_events",
+          "tableTo": "payment_intents",
+          "columnsFrom": [
+            "payment_intent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.provider_intent_outbox": {
+      "name": "provider_intent_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "payment_intent_id": {
+          "name": "payment_intent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "last_attempt_at": {
+          "name": "last_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_failure_code": {
+          "name": "last_failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "provider_intent_outbox_intent_uidx": {
+          "name": "provider_intent_outbox_intent_uidx",
+          "columns": [
+            {
+              "expression": "payment_intent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_intent_outbox_pending_idx": {
+          "name": "provider_intent_outbox_pending_idx",
+          "columns": [
+            {
+              "expression": "processed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "last_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_intent_outbox_purge_at_idx": {
+          "name": "provider_intent_outbox_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "provider_intent_outbox_payment_intent_id_payment_intents_id_fk": {
+          "name": "provider_intent_outbox_payment_intent_id_payment_intents_id_fk",
+          "tableFrom": "provider_intent_outbox",
+          "tableTo": "payment_intents",
+          "columnsFrom": [
+            "payment_intent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.public_payment_request_claims": {
+      "name": "public_payment_request_claims",
+      "schema": "",
+      "columns": {
+        "public_request_id": {
+          "name": "public_request_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "selection_idempotency_key": {
+          "name": "selection_idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quote_id": {
+          "name": "quote_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payer_method": {
+          "name": "payer_method",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "payment_direction",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_intent_id": {
+          "name": "payment_intent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "public_payment_request_claims_selection_idx": {
+          "name": "public_payment_request_claims_selection_idx",
+          "columns": [
+            {
+              "expression": "public_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "selection_idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "public_payment_request_claims_intent_uidx": {
+          "name": "public_payment_request_claims_intent_uidx",
+          "columns": [
+            {
+              "expression": "payment_intent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "public_payment_request_claims_public_request_id_public_payment_requests_id_fk": {
+          "name": "public_payment_request_claims_public_request_id_public_payment_requests_id_fk",
+          "tableFrom": "public_payment_request_claims",
+          "tableTo": "public_payment_requests",
+          "columnsFrom": [
+            "public_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "public_payment_request_claims_request_quote_fk": {
+          "name": "public_payment_request_claims_request_quote_fk",
+          "tableFrom": "public_payment_request_claims",
+          "tableTo": "public_payment_request_quote_bindings",
+          "columnsFrom": [
+            "public_request_id",
+            "quote_id"
+          ],
+          "columnsTo": [
+            "public_request_id",
+            "quote_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "public_payment_request_claims_direction_check": {
+          "name": "public_payment_request_claims_direction_check",
+          "value": "(\"public_payment_request_claims\".\"payer_method\" = 'BTC' AND \"public_payment_request_claims\".\"direction\" IN ('btc_to_btc', 'btc_to_zmw')) OR (\"public_payment_request_claims\".\"payer_method\" = 'ZMW' AND \"public_payment_request_claims\".\"direction\" = 'zmw_to_btc')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.public_payment_request_options": {
+      "name": "public_payment_request_options",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "public_request_id": {
+          "name": "public_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payer_method": {
+          "name": "payer_method",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "payment_direction",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "public_payment_request_options_method_uidx": {
+          "name": "public_payment_request_options_method_uidx",
+          "columns": [
+            {
+              "expression": "public_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "payer_method",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "public_payment_request_options_public_request_id_public_payment_requests_id_fk": {
+          "name": "public_payment_request_options_public_request_id_public_payment_requests_id_fk",
+          "tableFrom": "public_payment_request_options",
+          "tableTo": "public_payment_requests",
+          "columnsFrom": [
+            "public_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "public_payment_request_options_direction_check": {
+          "name": "public_payment_request_options_direction_check",
+          "value": "(\"public_payment_request_options\".\"payer_method\" = 'BTC' AND \"public_payment_request_options\".\"direction\" IN ('btc_to_btc', 'btc_to_zmw')) OR (\"public_payment_request_options\".\"payer_method\" = 'ZMW' AND \"public_payment_request_options\".\"direction\" = 'zmw_to_btc')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.public_payment_request_quote_bindings": {
+      "name": "public_payment_request_quote_bindings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "public_request_id": {
+          "name": "public_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quote_id": {
+          "name": "quote_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payer_method": {
+          "name": "payer_method",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "payment_direction",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "public_payment_request_quote_bindings_quote_uidx": {
+          "name": "public_payment_request_quote_bindings_quote_uidx",
+          "columns": [
+            {
+              "expression": "quote_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "public_payment_request_quote_bindings_idempotency_uidx": {
+          "name": "public_payment_request_quote_bindings_idempotency_uidx",
+          "columns": [
+            {
+              "expression": "public_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "public_payment_request_quote_bindings_request_quote_uidx": {
+          "name": "public_payment_request_quote_bindings_request_quote_uidx",
+          "columns": [
+            {
+              "expression": "public_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "quote_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "public_payment_request_quote_bindings_request_method_idx": {
+          "name": "public_payment_request_quote_bindings_request_method_idx",
+          "columns": [
+            {
+              "expression": "public_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "payer_method",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "public_payment_request_quote_bindings_public_request_id_public_payment_requests_id_fk": {
+          "name": "public_payment_request_quote_bindings_public_request_id_public_payment_requests_id_fk",
+          "tableFrom": "public_payment_request_quote_bindings",
+          "tableTo": "public_payment_requests",
+          "columnsFrom": [
+            "public_request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "public_payment_request_quote_bindings_quote_id_quotes_id_fk": {
+          "name": "public_payment_request_quote_bindings_quote_id_quotes_id_fk",
+          "tableFrom": "public_payment_request_quote_bindings",
+          "tableTo": "quotes",
+          "columnsFrom": [
+            "quote_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "public_payment_request_quote_bindings_direction_check": {
+          "name": "public_payment_request_quote_bindings_direction_check",
+          "value": "(\"public_payment_request_quote_bindings\".\"payer_method\" = 'BTC' AND \"public_payment_request_quote_bindings\".\"direction\" IN ('btc_to_btc', 'btc_to_zmw')) OR (\"public_payment_request_quote_bindings\".\"payer_method\" = 'ZMW' AND \"public_payment_request_quote_bindings\".\"direction\" = 'zmw_to_btc')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.public_payment_requests": {
+      "name": "public_payment_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_zmw_minor": {
+          "name": "amount_zmw_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "receive_asset": {
+          "name": "receive_asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "public_request_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "destination_lookup_token": {
+          "name": "destination_lookup_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "public_payment_requests_idempotency_key_uidx": {
+          "name": "public_payment_requests_idempotency_key_uidx",
+          "columns": [
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "public_payment_requests_open_expiry_idx": {
+          "name": "public_payment_requests_open_expiry_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "public_payment_requests_expires_at_idx": {
+          "name": "public_payment_requests_expires_at_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "public_payment_requests_purge_at_idx": {
+          "name": "public_payment_requests_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "public_payment_requests_amount_positive": {
+          "name": "public_payment_requests_amount_positive",
+          "value": "\"public_payment_requests\".\"amount_zmw_minor\" > 0"
+        },
+        "public_payment_requests_expiry_order": {
+          "name": "public_payment_requests_expiry_order",
+          "value": "\"public_payment_requests\".\"created_at\" < \"public_payment_requests\".\"expires_at\" AND \"public_payment_requests\".\"expires_at\" <= \"public_payment_requests\".\"purge_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.quotes": {
+      "name": "quotes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "payment_direction",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_zmw_minor": {
+          "name": "amount_zmw_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fee_zmw_minor": {
+          "name": "fee_zmw_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payer_amount_zmw_minor": {
+          "name": "payer_amount_zmw_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "payer_amount_sats": {
+          "name": "payer_amount_sats",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "merchant_amount_sats": {
+          "name": "merchant_amount_sats",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rate_zmw_minor_per_bitcoin": {
+          "name": "rate_zmw_minor_per_bitcoin",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "quotes_expires_at_idx": {
+          "name": "quotes_expires_at_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "quotes_purge_at_idx": {
+          "name": "quotes_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.reconciliation_results": {
+      "name": "reconciliation_results",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bridge_settlement_id": {
+          "name": "bridge_settlement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "reconciliation_outcome",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "safe_code": {
+          "name": "safe_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "review_required": {
+          "name": "review_required",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "reconciliation_results_settlement_idx": {
+          "name": "reconciliation_results_settlement_idx",
+          "columns": [
+            {
+              "expression": "bridge_settlement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "reconciliation_results_purge_at_idx": {
+          "name": "reconciliation_results_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "reconciliation_results_bridge_settlement_id_bridge_settlements_id_fk": {
+          "name": "reconciliation_results_bridge_settlement_id_bridge_settlements_id_fk",
+          "tableFrom": "reconciliation_results",
+          "tableTo": "bridge_settlements",
+          "columnsFrom": [
+            "bridge_settlement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.refund_obligations": {
+      "name": "refund_obligations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bridge_settlement_id": {
+          "name": "bridge_settlement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset": {
+          "name": "asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "refund_obligation_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "refund_obligations_settlement_uidx": {
+          "name": "refund_obligations_settlement_uidx",
+          "columns": [
+            {
+              "expression": "bridge_settlement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "refund_obligations_idempotency_uidx": {
+          "name": "refund_obligations_idempotency_uidx",
+          "columns": [
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "refund_obligations_status_idx": {
+          "name": "refund_obligations_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "refund_obligations_purge_at_idx": {
+          "name": "refund_obligations_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "refund_obligations_bridge_settlement_id_bridge_settlements_id_fk": {
+          "name": "refund_obligations_bridge_settlement_id_bridge_settlements_id_fk",
+          "tableFrom": "refund_obligations",
+          "tableTo": "bridge_settlements",
+          "columnsFrom": [
+            "bridge_settlement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.settlement_attempt_events": {
+      "name": "settlement_attempt_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "settlement_attempt_id": {
+          "name": "settlement_attempt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_number": {
+          "name": "attempt_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "settlement_attempt_event_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opaque_reference": {
+          "name": "opaque_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "settlement_attempt_events_kind_uidx": {
+          "name": "settlement_attempt_events_kind_uidx",
+          "columns": [
+            {
+              "expression": "settlement_attempt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "settlement_attempt_events_attempt_idx": {
+          "name": "settlement_attempt_events_attempt_idx",
+          "columns": [
+            {
+              "expression": "settlement_attempt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "settlement_attempt_events_purge_at_idx": {
+          "name": "settlement_attempt_events_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "settlement_attempt_events_settlement_attempt_id_settlement_attempts_id_fk": {
+          "name": "settlement_attempt_events_settlement_attempt_id_settlement_attempts_id_fk",
+          "tableFrom": "settlement_attempt_events",
+          "tableTo": "settlement_attempts",
+          "columnsFrom": [
+            "settlement_attempt_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.settlement_attempts": {
+      "name": "settlement_attempts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "settlement_obligation_id": {
+          "name": "settlement_obligation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attempt_number": {
+          "name": "attempt_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "settlement_attempt_outcome",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opaque_reference": {
+          "name": "opaque_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "settlement_attempts_obligation_number_uidx": {
+          "name": "settlement_attempts_obligation_number_uidx",
+          "columns": [
+            {
+              "expression": "settlement_obligation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "settlement_attempts_idempotency_uidx": {
+          "name": "settlement_attempts_idempotency_uidx",
+          "columns": [
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "settlement_attempts_purge_at_idx": {
+          "name": "settlement_attempts_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "settlement_attempts_settlement_obligation_id_settlement_obligations_id_fk": {
+          "name": "settlement_attempts_settlement_obligation_id_settlement_obligations_id_fk",
+          "tableFrom": "settlement_attempts",
+          "tableTo": "settlement_obligations",
+          "columnsFrom": [
+            "settlement_obligation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.settlement_obligations": {
+      "name": "settlement_obligations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "bridge_settlement_id": {
+          "name": "bridge_settlement_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset": {
+          "name": "asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "settlement_obligation_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_at": {
+          "name": "due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purge_at": {
+          "name": "purge_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "settlement_obligations_settlement_uidx": {
+          "name": "settlement_obligations_settlement_uidx",
+          "columns": [
+            {
+              "expression": "bridge_settlement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "settlement_obligations_status_idx": {
+          "name": "settlement_obligations_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "settlement_obligations_purge_at_idx": {
+          "name": "settlement_obligations_purge_at_idx",
+          "columns": [
+            {
+              "expression": "purge_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "settlement_obligations_bridge_settlement_id_bridge_settlements_id_fk": {
+          "name": "settlement_obligations_bridge_settlement_id_bridge_settlements_id_fk",
+          "tableFrom": "settlement_obligations",
+          "tableTo": "bridge_settlements",
+          "columnsFrom": [
+            "bridge_settlement_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.treasury_inventory_positions": {
+      "name": "treasury_inventory_positions",
+      "schema": "",
+      "columns": {
+        "asset": {
+          "name": "asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "opening_balance": {
+          "name": "opening_balance",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_balance": {
+          "name": "current_balance",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.treasury_journal_entries": {
+      "name": "treasury_journal_entries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "account_code": {
+          "name": "account_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "side": {
+          "name": "side",
+          "type": "treasury_journal_side",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "treasury_journal_entries_transaction_idx": {
+          "name": "treasury_journal_entries_transaction_idx",
+          "columns": [
+            {
+              "expression": "transaction_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "treasury_journal_entries_transaction_id_treasury_journal_transactions_id_fk": {
+          "name": "treasury_journal_entries_transaction_id_treasury_journal_transactions_id_fk",
+          "tableFrom": "treasury_journal_entries",
+          "tableTo": "treasury_journal_transactions",
+          "columnsFrom": [
+            "transaction_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.treasury_journal_transactions": {
+      "name": "treasury_journal_transactions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "exchange_group_id": {
+          "name": "exchange_group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "asset": {
+          "name": "asset",
+          "type": "payment_asset",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "treasury_journal_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opaque_reference": {
+          "name": "opaque_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "treasury_journal_transactions_idempotency_uidx": {
+          "name": "treasury_journal_transactions_idempotency_uidx",
+          "columns": [
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "treasury_journal_transactions_exchange_idx": {
+          "name": "treasury_journal_transactions_exchange_idx",
+          "columns": [
+            {
+              "expression": "exchange_group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.bridge_leg_kind": {
+      "name": "bridge_leg_kind",
+      "schema": "public",
+      "values": [
+        "source",
+        "destination"
+      ]
+    },
+    "public.bridge_leg_status": {
+      "name": "bridge_leg_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "processing",
+        "settled",
+        "failed",
+        "unknown"
+      ]
+    },
+    "public.liquidity_reservation_status": {
+      "name": "liquidity_reservation_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "committed",
+        "released",
+        "expired"
+      ]
+    },
+    "public.payment_asset": {
+      "name": "payment_asset",
+      "schema": "public",
+      "values": [
+        "BTC",
+        "ZMW"
+      ]
+    },
+    "public.payment_direction": {
+      "name": "payment_direction",
+      "schema": "public",
+      "values": [
+        "btc_to_zmw",
+        "zmw_to_btc",
+        "btc_to_btc"
+      ]
+    },
+    "public.payment_status": {
+      "name": "payment_status",
+      "schema": "public",
+      "values": [
+        "created",
+        "quote_locked",
+        "awaiting_source_payment",
+        "source_payment_confirming",
+        "source_payment_settled",
+        "destination_settlement_queued",
+        "destination_settlement_processing",
+        "provider_collecting",
+        "provider_settling",
+        "direct_payment_pending",
+        "direct_payment_settled",
+        "settled",
+        "expired",
+        "failed",
+        "source_payment_failed",
+        "destination_settlement_failed",
+        "liquidity_unavailable",
+        "rate_expired",
+        "refund_required",
+        "refund_pending",
+        "refunded",
+        "manual_review"
+      ]
+    },
+    "public.provider_event_status": {
+      "name": "provider_event_status",
+      "schema": "public",
+      "values": [
+        "source_pending",
+        "source_confirming",
+        "source_settled",
+        "destination_queued",
+        "destination_processing",
+        "destination_settled",
+        "collecting",
+        "settling",
+        "settled",
+        "expired",
+        "failed",
+        "refund_pending",
+        "refunded",
+        "unknown"
+      ]
+    },
+    "public.public_request_status": {
+      "name": "public_request_status",
+      "schema": "public",
+      "values": [
+        "open",
+        "claimed",
+        "expired"
+      ]
+    },
+    "public.reconciliation_outcome": {
+      "name": "reconciliation_outcome",
+      "schema": "public",
+      "values": [
+        "matched",
+        "mismatch",
+        "unavailable"
+      ]
+    },
+    "public.refund_obligation_status": {
+      "name": "refund_obligation_status",
+      "schema": "public",
+      "values": [
+        "required",
+        "pending",
+        "refunded",
+        "manual_review"
+      ]
+    },
+    "public.settlement_attempt_event_kind": {
+      "name": "settlement_attempt_event_kind",
+      "schema": "public",
+      "values": [
+        "started",
+        "succeeded",
+        "failed",
+        "timeout",
+        "unknown"
+      ]
+    },
+    "public.settlement_attempt_outcome": {
+      "name": "settlement_attempt_outcome",
+      "schema": "public",
+      "values": [
+        "processing",
+        "succeeded",
+        "failed",
+        "timeout",
+        "unknown"
+      ]
+    },
+    "public.settlement_obligation_status": {
+      "name": "settlement_obligation_status",
+      "schema": "public",
+      "values": [
+        "waiting_source",
+        "queued",
+        "processing",
+        "settled",
+        "failed",
+        "manual_review"
+      ]
+    },
+    "public.treasury_journal_kind": {
+      "name": "treasury_journal_kind",
+      "schema": "public",
+      "values": [
+        "source_collection",
+        "destination_settlement",
+        "refund"
+      ]
+    },
+    "public.treasury_journal_side": {
+      "name": "treasury_journal_side",
+      "schema": "public",
+      "values": [
+        "debit",
+        "credit"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

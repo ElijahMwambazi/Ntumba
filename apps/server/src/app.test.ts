@@ -43,6 +43,38 @@ class FailOnceBridgeEngine implements BridgeEngine {
     this.#delegate.retryDestination(...args);
 }
 
+class CountingBridgeEngine implements BridgeEngine {
+  createCount = 0;
+  readonly #delegate: BridgeEngine;
+
+  constructor(delegate: BridgeEngine) {
+    this.#delegate = delegate;
+  }
+
+  async create(input: Parameters<BridgeEngine["create"]>[0]) {
+    this.createCount += 1;
+    return this.#delegate.create(input);
+  }
+
+  appendProviderEvent: BridgeEngine["appendProviderEvent"] = (...args) =>
+    this.#delegate.appendProviderEvent(...args);
+  expireNextSourcePayment: BridgeEngine["expireNextSourcePayment"] = (...args) =>
+    this.#delegate.expireNextSourcePayment(...args);
+  markSourceOutcome: BridgeEngine["markSourceOutcome"] = (...args) =>
+    this.#delegate.markSourceOutcome(...args);
+  processDestination: BridgeEngine["processDestination"] = (...args) =>
+    this.#delegate.processDestination(...args);
+  processNextDestination: BridgeEngine["processNextDestination"] = (...args) =>
+    this.#delegate.processNextDestination(...args);
+  processNextProviderEvent: BridgeEngine["processNextProviderEvent"] = (...args) =>
+    this.#delegate.processNextProviderEvent(...args);
+  read: BridgeEngine["read"] = (...args) => this.#delegate.read(...args);
+  readOperationalStatus: BridgeEngine["readOperationalStatus"] = () =>
+    this.#delegate.readOperationalStatus();
+  retryDestination: BridgeEngine["retryDestination"] = (...args) =>
+    this.#delegate.retryDestination(...args);
+}
+
 const config: NtumbaConfig = {
   APP_BASE_URL: "http://localhost:5173",
   BITCOIN_LIQUIDITY_RAIL_MODE: "fake",
@@ -67,12 +99,13 @@ const config: NtumbaConfig = {
   PROVIDER_EVENT_MAX_PROCESSING_ATTEMPTS: 3,
   PROVIDER_EVENT_RETRY_BACKOFF_SECONDS: 5,
   PROVIDER_FINALITY_GRACE_SECONDS: 86_400,
+  PUBLIC_REQUEST_TTL_SECONDS: 900,
   QUOTE_RETENTION_SECONDS: 3_600,
   QUOTE_TTL_SECONDS: 60,
   RATE_PROVIDER_MODE: "fake",
   SERVE_WEB: false,
   SETTLEMENT_CALLBACK_GRACE_SECONDS: 60,
-  SETTLEMENT_DESTINATION_TTL_SECONDS: 300,
+  SETTLEMENT_DESTINATION_TTL_SECONDS: 1_200,
   SOURCE_PAYMENT_TTL_SECONDS: 180,
   STATIC_BTC_ZMW_RATE: "1800000.00",
   VARIABLE_FEE_BPS: 0,
@@ -418,9 +451,17 @@ describe("Ntumba API", () => {
     expect(published.statusCode).toBe(201);
     expect(published.json()).toMatchObject({
       developmentOnly: true,
-      options: [{ payerMethod: "BTC", quote: { direction: "btc_to_zmw" } }],
+      options: [{ direction: "btc_to_zmw", payerMethod: "BTC" }],
       receiveAsset: "ZMW",
     });
+    expect(
+      new Date(published.json().expiresAt).getTime() -
+        new Date(published.json().createdAt).getTime(),
+    ).toBe(config.PUBLIC_REQUEST_TTL_SECONDS * 1_000);
+    expect(
+      new Date(published.json().expiresAt).getTime() -
+        new Date(published.json().createdAt).getTime(),
+    ).toBeGreaterThan(config.QUOTE_TTL_SECONDS * 1_000);
     expect(published.body).not.toContain("0971234567");
     expect(published.body).not.toContain("destination");
     expect(published.body).not.toContain("merchantLabel");
@@ -447,12 +488,24 @@ describe("Ntumba API", () => {
     expect(loaded.statusCode).toBe(200);
     expect(loaded.json().publicId).toBe(published.json().publicId);
 
+    const quoted = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+      payload: {
+        idempotencyKey: "public-quote-01234567",
+        payerMethod: "BTC",
+      },
+    });
+    expect(quoted.statusCode).toBe(201);
+    expect(quoted.json()).toMatchObject({ direction: "btc_to_zmw" });
+
     const selected = await app.inject({
       method: "POST",
       url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
       payload: {
         idempotencyKey: "public-selection-012345",
         payerMethod: "BTC",
+        quoteId: quoted.json().quoteId,
       },
     });
     expect(selected.statusCode).toBe(201);
@@ -461,6 +514,273 @@ describe("Ntumba API", () => {
       status: "awaiting_source_payment",
     });
     expect(selected.body).not.toContain("0971234567");
+  });
+
+  it("rejects conflicting merchant creation idempotency without persisting a destination fingerprint", async () => {
+    const app = await buildApp(config);
+    openApps.push(app);
+    const payload = {
+      amountZmw: "100.00",
+      destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+      idempotencyKey: "merchant-conflict-012345",
+      payerMethods: ["BTC"],
+      receiveAsset: "ZMW",
+    };
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/public-requests",
+          payload,
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/public-requests",
+          payload: { ...payload, amountZmw: "101.00" },
+        })
+      ).statusCode,
+    ).toBe(409);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/public-requests",
+          payload: {
+            ...payload,
+            destination: { ...payload.destination, phone: "0961234567" },
+          },
+        })
+      ).statusCode,
+    ).toBe(409);
+  });
+
+  it("refreshes an expired payer quote while the public request remains open", async () => {
+    let now = new Date();
+    const app = await buildApp(config, undefined, undefined, undefined, () => now);
+    openApps.push(app);
+    const published = await app.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload: {
+        amountZmw: "100.00",
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        idempotencyKey: "refresh-request-012345",
+        payerMethods: ["BTC"],
+        receiveAsset: "ZMW",
+      },
+    });
+    expect(published.statusCode, published.body).toBe(201);
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+      payload: { idempotencyKey: "refresh-quote-one-0123", payerMethod: "BTC" },
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json().quoteId).toEqual(expect.any(String));
+    now = new Date(now.getTime() + config.QUOTE_TTL_SECONDS * 1_000 + 1);
+    const expired = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+      payload: {
+        idempotencyKey: "refresh-selection-0123",
+        payerMethod: "BTC",
+        quoteId: first.json().quoteId,
+      },
+    });
+    expect(expired.statusCode, expired.body).toBe(410);
+    const replacement = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+      payload: { idempotencyKey: "refresh-quote-two-0123", payerMethod: "BTC" },
+    });
+    expect(replacement.statusCode).toBe(201);
+    expect(replacement.json().quoteId).not.toBe(first.json().quoteId);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/v1/public-requests/${published.json().publicId}`,
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+
+  it("rejects a public request after its independent lifetime expires", async () => {
+    let now = new Date();
+    const app = await buildApp(
+      { ...config, PUBLIC_REQUEST_TTL_SECONDS: 60 },
+      undefined,
+      undefined,
+      undefined,
+      () => now,
+    );
+    openApps.push(app);
+    const published = await app.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload: {
+        amountZmw: "100.00",
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        idempotencyKey: "expired-request-012345",
+        payerMethods: ["BTC"],
+        receiveAsset: "ZMW",
+      },
+    });
+    now = new Date(now.getTime() + 60_001);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/v1/public-requests/${published.json().publicId}`,
+        })
+      ).statusCode,
+    ).toBe(410);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+          payload: { idempotencyKey: "expired-quote-0123456", payerMethod: "BTC" },
+        })
+      ).statusCode,
+    ).toBe(410);
+  });
+
+  it("allows one concurrent public-request claim and replays only the winning selection", async () => {
+    const treasury = createFakeTreasuryRuntime(config);
+    const bridgeEngine = new CountingBridgeEngine(treasury.bridgeEngine);
+    const app = await buildApp(config, {
+      bridgeEngine,
+      bridgeEventVerifier: new FakeBridgeEventVerifier(),
+      directLightningProvider: new FakeDirectLightningProvider(),
+      store: new InMemoryPaymentStore(),
+    });
+    openApps.push(app);
+    const published = await app.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload: {
+        amountZmw: "100.00",
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        idempotencyKey: "single-use-request-0123",
+        payerMethods: ["BTC"],
+        receiveAsset: "ZMW",
+      },
+    });
+    const quotes = await Promise.all(
+      ["one", "two"].map((suffix) =>
+        app.inject({
+          method: "POST",
+          url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+          payload: {
+            idempotencyKey: `single-use-quote-${suffix}-0123`,
+            payerMethod: "BTC",
+          },
+        }),
+      ),
+    );
+    const firstQuoteId = quotes[0]?.json().quoteId;
+    const secondQuoteId = quotes[1]?.json().quoteId;
+    if (typeof firstQuoteId !== "string" || typeof secondQuoteId !== "string") {
+      throw new Error("Concurrent public-request quotes were not created.");
+    }
+    const selections = [
+      {
+        idempotencyKey: "single-use-winner-one",
+        payerMethod: "BTC" as const,
+        quoteId: firstQuoteId,
+      },
+      {
+        idempotencyKey: "single-use-winner-two",
+        payerMethod: "BTC" as const,
+        quoteId: secondQuoteId,
+      },
+    ];
+    const results = await Promise.all(
+      selections.map((payload) =>
+        app.inject({
+          method: "POST",
+          url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+          payload,
+        }),
+      ),
+    );
+    expect(results.map((result) => result.statusCode).sort()).toEqual([201, 409]);
+    expect(bridgeEngine.createCount).toBe(1);
+    const winnerIndex = results.findIndex((result) => result.statusCode === 201);
+    const winner = results[winnerIndex];
+    const winnerSelection = selections[winnerIndex];
+    if (!winner || !winnerSelection) {
+      throw new Error("A concurrent one-time claim did not produce a winner.");
+    }
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+      payload: winnerSelection,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json().paymentIntentId).toBe(winner.json().paymentIntentId);
+    expect(replay.json().checkout).toEqual(winner.json().checkout);
+    expect(bridgeEngine.createCount).toBe(1);
+  });
+
+  it("rejects quotes bound to another public request or payer method", async () => {
+    const app = await buildApp(config);
+    openApps.push(app);
+    const create = (key: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/v1/public-requests",
+        payload: {
+          amountZmw: "100.00",
+          destination: { address: "shop@wallet.example", type: "lightning_address" },
+          idempotencyKey: key,
+          payerMethods: ["BTC", "ZMW"],
+          receiveAsset: "BTC",
+        },
+      });
+    const [first, second] = await Promise.all([
+      create("quote-owner-first-0123"),
+      create("quote-owner-second-012"),
+    ]);
+    const quoted = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${first.json().publicId}/quotes`,
+      payload: { idempotencyKey: "quote-owner-binding-012", payerMethod: "BTC" },
+    });
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/v1/public-requests/${first.json().publicId}/quotes`,
+          payload: { idempotencyKey: "quote-owner-binding-012", payerMethod: "ZMW" },
+        })
+      ).statusCode,
+    ).toBe(409);
+    const wrongRequest = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${second.json().publicId}/payment-intents`,
+      payload: {
+        idempotencyKey: "wrong-request-claim-012",
+        payerMethod: "BTC",
+        quoteId: quoted.json().quoteId,
+      },
+    });
+    expect(wrongRequest.statusCode).toBe(400);
+    const wrongMethod = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${first.json().publicId}/payment-intents`,
+      payload: {
+        idempotencyKey: "wrong-method-claim-0123",
+        payerMethod: "ZMW",
+        quoteId: quoted.json().quoteId,
+      },
+    });
+    expect(wrongMethod.statusCode).toBe(400);
   });
 
   it("fails closed before source setup when a durable request loses its destination", async () => {
@@ -475,19 +795,38 @@ describe("Ntumba API", () => {
       store: paymentStore,
     });
     openApps.push(app);
+    const requestPayload = {
+      amountZmw: "100.00",
+      destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+      idempotencyKey: "restart-request-012345",
+      payerMethods: ["BTC"],
+      receiveAsset: "ZMW",
+    };
     const published = await app.inject({
       method: "POST",
       url: "/api/v1/public-requests",
-      payload: {
-        amountZmw: "100.00",
-        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
-        idempotencyKey: "restart-request-012345",
-        payerMethods: ["BTC"],
-        receiveAsset: "ZMW",
-      },
+      payload: requestPayload,
     });
     expect(published.statusCode).toBe(201);
+    const quoted = await app.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+      payload: {
+        idempotencyKey: "restart-quote-0123456",
+        payerMethod: "BTC",
+      },
+    });
+    expect(quoted.statusCode).toBe(201);
     publicVault.delete("public-destination-token");
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/public-requests",
+          payload: requestPayload,
+        })
+      ).statusCode,
+    ).toBe(410);
 
     const unavailable = await app.inject({
       method: "POST",
@@ -495,6 +834,7 @@ describe("Ntumba API", () => {
       payload: {
         idempotencyKey: "restart-selection-012345",
         payerMethod: "BTC",
+        quoteId: quoted.json().quoteId,
       },
     });
     expect(unavailable.statusCode).toBe(410);

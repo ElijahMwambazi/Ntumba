@@ -39,13 +39,14 @@ const configSchema = z
     PROVIDER_EVENT_MAX_PROCESSING_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
     PROVIDER_EVENT_RETRY_BACKOFF_SECONDS: z.coerce.number().int().min(1).max(300).default(5),
     PROVIDER_FINALITY_GRACE_SECONDS: z.coerce.number().int().min(60).max(604_800).default(86_400),
+    PUBLIC_REQUEST_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(900),
     QUOTE_RETENTION_SECONDS: z.coerce.number().int().min(0).max(86_400).default(3_600),
     QUOTE_TTL_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
     RATE_PROVIDER_MODE: z.literal("fake").default("fake"),
     SERVE_WEB: booleanString,
     SOURCE_PAYMENT_TTL_SECONDS: z.coerce.number().int().min(30).max(3_600).default(180),
     SETTLEMENT_CALLBACK_GRACE_SECONDS: z.coerce.number().int().min(10).max(600).default(60),
-    SETTLEMENT_DESTINATION_TTL_SECONDS: z.coerce.number().int().min(40).max(7_200).default(300),
+    SETTLEMENT_DESTINATION_TTL_SECONDS: z.coerce.number().int().min(40).max(172_800).default(1_200),
     STATIC_BTC_ZMW_RATE: z.string().default("1800000.00"),
     VARIABLE_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(0),
   })
@@ -80,6 +81,17 @@ const configSchema = z
         code: "custom",
         message:
           "SETTLEMENT_DESTINATION_TTL_SECONDS must cover source expiry plus callback processing grace.",
+        path: ["SETTLEMENT_DESTINATION_TTL_SECONDS"],
+      });
+    }
+    if (
+      config.SETTLEMENT_DESTINATION_TTL_SECONDS <
+      config.PUBLIC_REQUEST_TTL_SECONDS + config.QUOTE_TTL_SECONDS
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "SETTLEMENT_DESTINATION_TTL_SECONDS must cover the public request lifetime plus quote-confirmation grace.",
         path: ["SETTLEMENT_DESTINATION_TTL_SECONDS"],
       });
     }

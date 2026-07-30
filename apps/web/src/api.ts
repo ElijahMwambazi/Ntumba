@@ -1,6 +1,7 @@
 import type {
   CreatePaymentIntentRequest,
   CreatePublicRequestPaymentIntent,
+  CreatePublicRequestQuote,
   CreatePublicRequestRequest,
   CreateQuoteRequest,
   CreateQuoteResponse,
@@ -58,6 +59,17 @@ export function createPublicRequest(
 
 export function getPublicRequest(publicId: string): Promise<PublicPaymentRequest> {
   return requestJson(`/api/v1/public-requests/${encodeURIComponent(publicId)}`);
+}
+
+export function createPublicRequestQuote(
+  publicId: string,
+  input: CreatePublicRequestQuote,
+): Promise<CreateQuoteResponse> {
+  return requestJson(`/api/v1/public-requests/${encodeURIComponent(publicId)}/quotes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
 }
 
 export function createPublicRequestPaymentIntent(

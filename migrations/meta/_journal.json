@@ -43,6 +43,13 @@
       "when": 1785357392634,
       "tag": "0005_tranquil_chameleon",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785399281583,
+      "tag": "0006_boring_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

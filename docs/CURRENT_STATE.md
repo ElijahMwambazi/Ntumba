@@ -54,9 +54,16 @@
   bounded non-recursive skipping and safe no-op behavior after another worker processes the row.
 - Conclusive source setup/provider failure terminalizes both legs' obligation, releases the
   reservation once and leaves no destination/refund work; uncertain outcomes remain in review.
-- Durable multi-instance public request reads with integer amount, payer options, expiry/purge
-  timestamps and one opaque destination lookup token. Payment intent/source setup is deferred
-  until payer confirmation and fails closed if the separate memory vault cannot resolve the token.
+- Durable multi-instance public request reads with an independent 15-minute development lifetime,
+  integer amount, supported payer methods/directions, `open/claimed/expired` state,
+  expiry/purge timestamps and one opaque destination lookup token.
+- Fresh short-lived quotes are created only after the payer selects a method and are durably bound
+  to that request/method/direction. Checkout shows the quote and requires explicit confirmation.
+- A row-locked one-time claim records the winning selection key, quote and stable payment-intent
+  UUID before source setup. Losing keys conflict; winning retries recover the same intent across
+  pre-dispatch and post-provider-success crash boundaries without reopening uncertain failures.
+- Payment intent/source setup remains deferred until payer confirmation and fails closed before
+  claiming if the separate memory vault cannot resolve the token.
 - Replacement fake rail adapters can share simulated remote-provider state for stronger
   provider-side idempotency restart tests.
 - Normalized provider-event schema with no raw callback body.
@@ -87,8 +94,8 @@
   envelope-encrypted store.
 - Live Lightning-address resolution or merchant-wallet settlement verification.
 - Independently verifiable direct-payment receipts.
-- Capability discovery from live providers. Durable request options still use deterministic fake
-  quotes and are revalidated when the customer confirms one.
+- Capability discovery from live providers. Durable request options remain deterministic fake-only
+  method/direction pairs; payer-created quotes still use the static fake rate.
 - Production retention decision, legal/provider review or deployment.
 - Durable destination storage, real reconciliation, automated refunds, live treasury/rate circuit
   breakers, real-money alerts, operator write controls

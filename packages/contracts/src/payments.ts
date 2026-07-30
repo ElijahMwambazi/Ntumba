@@ -184,8 +184,8 @@ export const payerMethodSchema = z.enum(["BTC", "ZMW"]);
 export type PayerMethod = z.infer<typeof payerMethodSchema>;
 
 export const publicRequestOptionSchema = z.object({
+  direction: paymentDirectionSchema,
   payerMethod: payerMethodSchema,
-  quote: createQuoteResponseSchema,
 });
 export type PublicRequestOption = z.infer<typeof publicRequestOptionSchema>;
 
@@ -209,9 +209,16 @@ export const publicPaymentRequestSchema = z.object({
 });
 export type PublicPaymentRequest = z.infer<typeof publicPaymentRequestSchema>;
 
+export const createPublicRequestQuoteSchema = z.object({
+  idempotencyKey: idempotencyKeySchema,
+  payerMethod: payerMethodSchema,
+});
+export type CreatePublicRequestQuote = z.infer<typeof createPublicRequestQuoteSchema>;
+
 export const createPublicRequestPaymentIntentSchema = z.object({
   idempotencyKey: idempotencyKeySchema,
   payerMethod: payerMethodSchema,
+  quoteId: z.uuid(),
 });
 export type CreatePublicRequestPaymentIntent = z.infer<
   typeof createPublicRequestPaymentIntentSchema

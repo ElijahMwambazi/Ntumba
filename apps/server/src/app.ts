@@ -43,6 +43,7 @@ export async function buildApp(
   dependencies?: AppDependencies,
   publicRequestStore: PublicRequestStore = new InMemoryPublicRequestStore(),
   metrics?: NtumbaMetrics,
+  publicRequestNow?: () => Date,
 ) {
   const resolvedDependencies: AppDependencies =
     dependencies ??
@@ -164,6 +165,7 @@ export async function buildApp(
       resolvedDependencies.publicRequestDestinationVault ??
         new InMemorySettlementDestinationVault(),
       resolvedDependencies,
+      publicRequestNow,
     ),
     { prefix: "/api/v1" },
   );

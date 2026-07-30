@@ -69,13 +69,15 @@ The fake treasury callback enters through `POST /api/v1/provider-callbacks/fake`
 the timestamp and exact raw bytes. Verification and normalization happen before the event is
 matched against the retained opaque reference, direction, assets and integer amounts.
 
-Merchant request creation stores only the durable public envelope and safe quotes, while its raw
-destination receives an opaque token in the separate development memory vault. No source rail is
-called at this point. When a payer confirms one option, the server first resolves that token; a
-missing token returns an unavailable response before intent staging or any rail call. A successful
-resolution then atomically stores the payment intent, bridge, source/destination legs, reservation,
-waiting obligation and payload-free source outbox before calling the fake source rail outside the
-transaction with a distinct collection key.
+Merchant request creation stores only the durable public envelope and supported method/direction
+pairs, while its raw destination receives an opaque token in the separate development memory
+vault. No quote or source rail is created at this point. Method selection creates a fresh
+short-lived quote and a durable request/method/direction binding. Confirmation resolves the
+destination before a row-locked `open -> claimed` transition records the winning selection key,
+quote and stable payment-intent UUID. A missing token returns unavailable before the claim or any
+rail call; a different claimant receives a conflict. After the claim, bridge creation atomically
+stores the payment intent, legs, reservation, waiting obligation and payload-free source outbox
+before calling the fake source rail outside the transaction with a stable collection key.
 
 Provider-event processing row-locks one normalized event and retains its exact UUID outside the
 transaction. If application rolls back, isolation locks and rechecks only that UUID; a row already
@@ -130,7 +132,7 @@ lifecycle timestamps. It has no merchant profile, destination, invoice or raw ca
 The forward-only migrations add bridge settlements and source/destination legs, liquidity
 reservations, settlement obligations/attempts, reconciliation results, refund obligations,
 durable inventory, provider-event isolation metadata, append-only transport-attempt events and
-the minimal public request/option tables.
+the minimal public request/option, payer-quote binding and one-time claim tables.
 Journal transactions are grouped by exchange but balanced independently for BTC and ZMW with
 positive integer debit/credit entries. Deferred triggers reject unbalanced commits, and
 UPDATE/DELETE triggers make journal history append-only.
@@ -153,11 +155,14 @@ listener is constructed only when `OPS_ENABLED=true`, requires a strong bearer t
 registers on the public Fastify instance.
 
 The public checkout envelope is keyed by a random UUID and shared across server instances through
-PostgreSQL. It contains one positive integer amount, receive asset, safe quote-option references,
-an opaque destination lookup token and explicit creation/expiry/purge timestamps. It contains no
-merchant label/reference, phone, Lightning address/invoice or customer identity. The development
-destination vault remains separate and non-durable; envelope durability does not make destination
-recovery production-safe.
+PostgreSQL. It contains one positive integer amount, receive asset, supported method/direction
+pairs, `open/claimed/expired` state, an opaque destination lookup token and explicit
+creation/expiry/purge timestamps. Separate safe rows bind payer-created quotes and retain exactly
+one claim with its stable payment-intent UUID. They contain no merchant label/reference, phone,
+Lightning address/invoice or customer identity. The development destination vault remains
+separate and non-durable; envelope durability does not make a request payable on another instance
+that cannot resolve its token. A completed conversion source setup can reconstruct its already
+durable checkout without redispatching the source call.
 
 ## Browser state and routes
 
@@ -179,7 +184,8 @@ for merchant data.
 
 ## Lifecycle
 
-Public requests, quotes, intents and outbox rows have explicit lifecycle timestamps. API access
+Public-request expiry is configured independently from quote expiry. Requests, quote bindings,
+claims, intents and outbox rows have explicit lifecycle timestamps. API access
 opportunistically purges due public requests; pg-boss also removes them in the hourly operational
 purge. A due bridge is eligible only when its
 status is terminal, provider-finality grace has passed and no active reservation, unresolved

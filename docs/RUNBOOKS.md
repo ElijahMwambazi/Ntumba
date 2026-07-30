@@ -54,9 +54,12 @@ chat.
 ## Public request unavailable after restart
 
 1. Confirm the safe PostgreSQL envelope exists without printing its opaque destination token.
-2. Treat a missing development-vault destination as expected fail-closed behavior.
-3. Do not recreate source collection or recover the raw destination from logs/history.
-4. Ask the merchant to create a new request; production recovery remains a later reviewed gate.
+2. Check only whether it is open, claimed or expired; never print its selection key or quote ID.
+3. Treat a missing development-vault destination before dispatch as expected fail-closed behavior.
+4. Do not reopen a claim or recreate source collection under another key. A winning conversion
+   retry whose provider reference is already durable may resume the same checkout.
+5. Do not recover the raw destination from logs/history. Ask the merchant for a new request when
+   recovery is unavailable; production destination recovery remains Phase 5 work.
 
 ## Pending outbox backlog
 

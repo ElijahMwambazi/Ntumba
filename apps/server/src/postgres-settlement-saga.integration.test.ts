@@ -10,7 +10,9 @@ import {
   paymentIntents,
   providerEvents,
   providerIntentOutbox,
+  publicPaymentRequestClaims,
   publicPaymentRequestOptions,
+  publicPaymentRequestQuoteBindings,
   publicPaymentRequests,
   purgeExpiredOperationalData,
   quotes,
@@ -20,7 +22,9 @@ import {
   treasuryInventoryPositions,
   treasuryJournalTransactions,
 } from "@ntumba/database";
+import { FakeBridgeEventVerifier, FakeDirectLightningProvider } from "@ntumba/providers";
 import {
+  type BridgeEngine,
   DeterministicFakeReconciliationService,
   FakeLipilaMobileMoneyTreasury,
   FakeLipilaRemoteState,
@@ -32,9 +36,51 @@ import {
 import { and, eq, inArray } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { buildApp } from "./app.js";
 import { PostgresPaymentStore } from "./postgres-payment-store.js";
 import { PostgresSettlementSagaRepository } from "./postgres-settlement-saga-repository.js";
 import { PostgresPublicRequestStore } from "./public-request-store.js";
+
+class FaultInjectedBridgeEngine implements BridgeEngine {
+  createCount = 0;
+  readonly #delegate: BridgeEngine;
+  readonly #failure: "before" | "after";
+
+  constructor(delegate: BridgeEngine, failure: "before" | "after") {
+    this.#delegate = delegate;
+    this.#failure = failure;
+  }
+
+  async create(input: Parameters<BridgeEngine["create"]>[0]) {
+    this.createCount += 1;
+    if (this.createCount === 1 && this.#failure === "before") {
+      throw new Error("Synthetic crash before provider dispatch.");
+    }
+    const created = await this.#delegate.create(input);
+    if (this.createCount === 1 && this.#failure === "after") {
+      throw new Error("Synthetic crash after provider success.");
+    }
+    return created;
+  }
+
+  appendProviderEvent: BridgeEngine["appendProviderEvent"] = (...args) =>
+    this.#delegate.appendProviderEvent(...args);
+  expireNextSourcePayment: BridgeEngine["expireNextSourcePayment"] = (...args) =>
+    this.#delegate.expireNextSourcePayment(...args);
+  markSourceOutcome: BridgeEngine["markSourceOutcome"] = (...args) =>
+    this.#delegate.markSourceOutcome(...args);
+  processDestination: BridgeEngine["processDestination"] = (...args) =>
+    this.#delegate.processDestination(...args);
+  processNextDestination: BridgeEngine["processNextDestination"] = (...args) =>
+    this.#delegate.processNextDestination(...args);
+  processNextProviderEvent: BridgeEngine["processNextProviderEvent"] = (...args) =>
+    this.#delegate.processNextProviderEvent(...args);
+  read: BridgeEngine["read"] = (...args) => this.#delegate.read(...args);
+  readOperationalStatus: BridgeEngine["readOperationalStatus"] = () =>
+    this.#delegate.readOperationalStatus();
+  retryDestination: BridgeEngine["retryDestination"] = (...args) =>
+    this.#delegate.retryDestination(...args);
+}
 
 const connectionString = process.env.TEST_DATABASE_URL;
 const integration = connectionString ? describe : describe.skip;
@@ -724,46 +770,288 @@ integration("PostgreSQL durable fake settlement saga", () => {
     ).not.toHaveLength(0);
   });
 
+  it("resumes the same durable public claim after a crash before provider dispatch", async () => {
+    const paymentStore = new PostgresPaymentStore(database, config);
+    const publicStore = new PostgresPublicRequestStore(database, paymentStore);
+    const publicVault = new InMemorySettlementDestinationVault();
+    const remote = new FakeVoltageLndRemoteState();
+    const delegate = new RepositoryBackedSettlementCoordinator({
+      bitcoin: new FakeVoltageLndTreasury(remote),
+      mobileMoney: new FakeLipilaMobileMoneyTreasury(new FakeLipilaRemoteState()),
+      reconciliation: new DeterministicFakeReconciliationService(),
+      repository: new PostgresSettlementSagaRepository(database, config),
+      vault: publicVault,
+    });
+    const faulted = new FaultInjectedBridgeEngine(delegate, "before");
+    const dependencies = {
+      bridgeEngine: faulted,
+      bridgeEventVerifier: new FakeBridgeEventVerifier(),
+      directLightningProvider: new FakeDirectLightningProvider(),
+      publicRequestDestinationVault: publicVault,
+      store: paymentStore,
+    };
+    const firstApp = await buildApp(config, dependencies, publicStore);
+    const requestKey = `before-request:${randomUUID()}`;
+    const quoteKey = `before-quote:${randomUUID()}`;
+    const selectionKey = `before-selection:${randomUUID()}`;
+    const published = await firstApp.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload: {
+        amountZmw: "100.00",
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        idempotencyKey: requestKey,
+        payerMethods: ["BTC"],
+        receiveAsset: "ZMW",
+      },
+    });
+    const quoted = await firstApp.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+      payload: { idempotencyKey: quoteKey, payerMethod: "BTC" },
+    });
+    const selection = {
+      idempotencyKey: selectionKey,
+      payerMethod: "BTC",
+      quoteId: quoted.json().quoteId,
+    };
+    expect(
+      (
+        await firstApp.inject({
+          method: "POST",
+          url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+          payload: selection,
+        })
+      ).statusCode,
+    ).toBe(500);
+    const [claim] = await database
+      .select()
+      .from(publicPaymentRequestClaims)
+      .where(eq(publicPaymentRequestClaims.publicRequestId, published.json().publicId));
+    expect(claim).toBeDefined();
+    expect(remote.createdInvoices.size).toBe(0);
+    await firstApp.close();
+
+    const replacementStore = new PostgresPublicRequestStore(database, paymentStore);
+    const replacementApp = await buildApp(
+      config,
+      { ...dependencies, bridgeEngine: delegate },
+      replacementStore,
+    );
+    const resumed = await replacementApp.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+      payload: selection,
+    });
+    expect(resumed.statusCode).toBe(201);
+    expect(resumed.json().paymentIntentId).toBe(claim?.paymentIntentId);
+    expect(remote.createdInvoices.size).toBe(1);
+    await replacementApp.close();
+  });
+
+  it("recovers provider success after response loss without a destination or second source setup", async () => {
+    const paymentStore = new PostgresPaymentStore(database, config);
+    const publicStore = new PostgresPublicRequestStore(database, paymentStore);
+    const publicVault = new InMemorySettlementDestinationVault();
+    const remote = new FakeVoltageLndRemoteState();
+    const coordinator = new RepositoryBackedSettlementCoordinator({
+      bitcoin: new FakeVoltageLndTreasury(remote),
+      mobileMoney: new FakeLipilaMobileMoneyTreasury(new FakeLipilaRemoteState()),
+      reconciliation: new DeterministicFakeReconciliationService(),
+      repository: new PostgresSettlementSagaRepository(database, config),
+      vault: publicVault,
+    });
+    const faulted = new FaultInjectedBridgeEngine(coordinator, "after");
+    const firstApp = await buildApp(
+      config,
+      {
+        bridgeEngine: faulted,
+        bridgeEventVerifier: new FakeBridgeEventVerifier(),
+        directLightningProvider: new FakeDirectLightningProvider(),
+        publicRequestDestinationVault: publicVault,
+        store: paymentStore,
+      },
+      publicStore,
+    );
+    const published = await firstApp.inject({
+      method: "POST",
+      url: "/api/v1/public-requests",
+      payload: {
+        amountZmw: "100.00",
+        destination: { network: "mtn", phone: "0971234567", type: "mobile_money" },
+        idempotencyKey: `after-request:${randomUUID()}`,
+        payerMethods: ["BTC"],
+        receiveAsset: "ZMW",
+      },
+    });
+    const quoted = await firstApp.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/quotes`,
+      payload: { idempotencyKey: `after-quote:${randomUUID()}`, payerMethod: "BTC" },
+    });
+    const selection = {
+      idempotencyKey: `after-selection:${randomUUID()}`,
+      payerMethod: "BTC",
+      quoteId: quoted.json().quoteId,
+    };
+    expect(
+      (
+        await firstApp.inject({
+          method: "POST",
+          url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+          payload: selection,
+        })
+      ).statusCode,
+    ).toBe(500);
+    const [claim] = await database
+      .select()
+      .from(publicPaymentRequestClaims)
+      .where(eq(publicPaymentRequestClaims.publicRequestId, published.json().publicId));
+    expect(claim).toBeDefined();
+    expect(remote.createdInvoices.size).toBe(1);
+    await firstApp.close();
+
+    const replacementBridge = new FaultInjectedBridgeEngine(coordinator, "before");
+    const replacementApp = await buildApp(
+      config,
+      {
+        bridgeEngine: replacementBridge,
+        bridgeEventVerifier: new FakeBridgeEventVerifier(),
+        directLightningProvider: new FakeDirectLightningProvider(),
+        publicRequestDestinationVault: new InMemorySettlementDestinationVault(),
+        store: new PostgresPaymentStore(database, config),
+      },
+      new PostgresPublicRequestStore(database, new PostgresPaymentStore(database, config)),
+    );
+    const resumed = await replacementApp.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+      payload: selection,
+    });
+    expect(resumed.statusCode).toBe(201);
+    expect(resumed.json().paymentIntentId).toBe(claim?.paymentIntentId);
+    expect(remote.createdInvoices.size).toBe(1);
+    expect(replacementBridge.createCount).toBe(0);
+    const durableRepository = new PostgresSettlementSagaRepository(database, config);
+    const settlement = await durableRepository.findByPaymentIntentId(claim?.paymentIntentId ?? "");
+    expect(settlement).toBeDefined();
+    if (settlement) {
+      await coordinator.markSourceOutcome(settlement.id, "unknown");
+    }
+    expect(
+      (
+        await database
+          .select({ status: publicPaymentRequests.status })
+          .from(publicPaymentRequests)
+          .where(eq(publicPaymentRequests.id, published.json().publicId))
+      )[0]?.status,
+    ).toBe("claimed");
+    const losingRetry = await replacementApp.inject({
+      method: "POST",
+      url: `/api/v1/public-requests/${published.json().publicId}/payment-intents`,
+      payload: { ...selection, idempotencyKey: `loser:${randomUUID()}` },
+    });
+    expect(losingRetry.statusCode).toBe(409);
+    expect(remote.createdInvoices.size).toBe(1);
+    await replacementApp.close();
+  });
+
   it("persists only a restart-safe public checkout envelope and purges it operationally", async () => {
     const paymentStore = new PostgresPaymentStore(database, config);
     const publicStore = new PostgresPublicRequestStore(database, paymentStore);
-    const quote = await seedQuote();
-    const storedQuote = await paymentStore.getQuote(quote.id);
-    expect(storedQuote).toBeDefined();
+    const now = new Date();
     const publicId = randomUUID();
     const record = {
       destinationLookupToken: randomUUID(),
       idempotencyKey: `public:${randomUUID()}`,
-      purgeAt: new Date(quote.now.getTime() + 120_000),
+      purgeAt: new Date(now.getTime() + 120_000),
       request: {
         amountZmw: "100.00",
-        createdAt: quote.now.toISOString(),
+        createdAt: now.toISOString(),
         developmentOnly: true as const,
-        expiresAt: new Date(quote.now.getTime() + 60_000).toISOString(),
-        options: [{ payerMethod: "BTC" as const, quote: storedQuote?.response }],
+        expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+        options: [{ direction: "btc_to_zmw" as const, payerMethod: "BTC" as const }],
         publicId,
         receiveAsset: "ZMW" as const,
       },
+      status: "open" as const,
     };
-    if (!storedQuote) {
-      throw new Error("The public-request test quote was not stored.");
-    }
-    const saved = await publicStore.save({
-      ...record,
-      request: {
-        ...record.request,
-        options: [{ payerMethod: "BTC", quote: storedQuote.response }],
-      },
-    });
+    const saved = await publicStore.save(record);
     expect(saved.created).toBe(true);
     expect((await publicStore.save(saved.record)).created).toBe(false);
     const replacement = new PostgresPublicRequestStore(database, paymentStore);
     expect((await replacement.get(publicId))?.request).toEqual(saved.record.request);
 
-    const columns = await pool.query<{ column_name: string }>(
+    const firstQuote = await seedQuote();
+    const secondQuote = await seedQuote();
+    const firstStoredQuote = await paymentStore.getQuote(firstQuote.id);
+    const secondStoredQuote = await paymentStore.getQuote(secondQuote.id);
+    if (!firstStoredQuote || !secondStoredQuote) {
+      throw new Error("Public-request quotes were not stored.");
+    }
+    await publicStore.bindQuote({
+      createdAt: firstQuote.now,
+      direction: "btc_to_zmw",
+      idempotencyKey: `public-quote:${randomUUID()}`,
+      payerMethod: "BTC",
+      publicRequestId: publicId,
+      quote: firstStoredQuote.response,
+    });
+    await publicStore.bindQuote({
+      createdAt: secondQuote.now,
+      direction: "btc_to_zmw",
+      idempotencyKey: `public-quote:${randomUUID()}`,
+      payerMethod: "BTC",
+      publicRequestId: publicId,
+      quote: secondStoredQuote.response,
+    });
+    const claimInputs = [
+      {
+        direction: "btc_to_zmw" as const,
+        now: new Date(),
+        payerMethod: "BTC" as const,
+        paymentIntentId: randomUUID(),
+        publicRequestId: publicId,
+        quoteId: firstQuote.id,
+        selectionIdempotencyKey: `public-selection:${randomUUID()}`,
+      },
+      {
+        direction: "btc_to_zmw" as const,
+        now: new Date(),
+        payerMethod: "BTC" as const,
+        paymentIntentId: randomUUID(),
+        publicRequestId: publicId,
+        quoteId: secondQuote.id,
+        selectionIdempotencyKey: `public-selection:${randomUUID()}`,
+      },
+    ];
+    const claims = await Promise.all(claimInputs.map((input) => publicStore.claim(input)));
+    expect(claims.map((claim) => claim.outcome).sort()).toEqual(["claimed", "conflict"]);
+    expect(
+      await database
+        .select()
+        .from(publicPaymentRequestClaims)
+        .where(eq(publicPaymentRequestClaims.publicRequestId, publicId)),
+    ).toHaveLength(1);
+    const winnerIndex = claims.findIndex((claim) => claim.outcome === "claimed");
+    const winnerInput = claimInputs[winnerIndex];
+    if (!winnerInput) {
+      throw new Error("A concurrent PostgreSQL claim did not produce a winner.");
+    }
+    expect((await replacement.claim(winnerInput)).outcome).toBe("replay");
+    expect(
+      (
+        await database
+          .select({ status: publicPaymentRequests.status })
+          .from(publicPaymentRequests)
+          .where(eq(publicPaymentRequests.id, publicId))
+      )[0]?.status,
+    ).toBe("claimed");
+
+    const requestColumns = await pool.query<{ column_name: string }>(
       "select column_name from information_schema.columns where table_schema = 'public' and table_name = 'public_payment_requests' order by column_name",
     );
-    expect(columns.rows.map((row) => row.column_name)).toEqual([
+    expect(requestColumns.rows.map((row) => row.column_name)).toEqual([
       "amount_zmw_minor",
       "created_at",
       "destination_lookup_token",
@@ -772,8 +1060,15 @@ integration("PostgreSQL durable fake settlement saga", () => {
       "idempotency_key",
       "purge_at",
       "receive_asset",
+      "status",
     ]);
-    const serialized = JSON.stringify(await replacement.get(publicId));
+    const safeTables = await pool.query<{ column_name: string; table_name: string }>(
+      "select table_name, column_name from information_schema.columns where table_schema = 'public' and table_name in ('public_payment_requests', 'public_payment_request_options', 'public_payment_request_quote_bindings', 'public_payment_request_claims') order by table_name, column_name",
+    );
+    const serialized = JSON.stringify({
+      record: await replacement.get(publicId),
+      schema: safeTables.rows,
+    });
     for (const forbidden of [
       "phone",
       "invoice",
@@ -801,6 +1096,18 @@ integration("PostgreSQL durable fake settlement saga", () => {
         .select()
         .from(publicPaymentRequestOptions)
         .where(eq(publicPaymentRequestOptions.publicRequestId, publicId)),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .select()
+        .from(publicPaymentRequestQuoteBindings)
+        .where(eq(publicPaymentRequestQuoteBindings.publicRequestId, publicId)),
+    ).toHaveLength(0);
+    expect(
+      await database
+        .select()
+        .from(publicPaymentRequestClaims)
+        .where(eq(publicPaymentRequestClaims.publicRequestId, publicId)),
     ).toHaveLength(0);
   });
 });

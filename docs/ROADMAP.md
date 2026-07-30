@@ -108,6 +108,19 @@ Work from the first relevant unchecked item. Do not combine unrelated payment mi
 - [x] Apply and verify the forward-only reliability migration, full PostgreSQL concurrency and
       retention suite, API privacy cases and mobile/desktop payer journeys.
 
+## Phase 3.4 — One-time public request transaction semantics
+
+- [x] Separate the durable public-request lifetime from short-lived payer-created quotes and keep
+      merchant creation free of rates and fixed quote IDs.
+- [x] Bind fresh and replacement payer quotes to the exact request, method and direction, with
+      explicit quote review and confirmation in guest checkout.
+- [x] Claim each public request exactly once under a row lock before source setup, preserving a
+      stable payment-intent UUID and deterministic winner replay across dispatch crash boundaries.
+- [x] Enforce conflict-safe merchant and payer idempotency without persisting destination
+      fingerprints or weakening the process-local destination boundary.
+- [x] Apply and verify the forward-only one-time-request migration, PostgreSQL concurrency,
+      recovery/retention/privacy cases and mobile/desktop sharing and payer journeys.
+
 ## Phase 4 — Controlled rail integrations
 
 - [ ] Add a disabled-by-default Voltage MutinyNet adapter using least-privilege LND credentials

@@ -1,21 +1,33 @@
-import type { PayerMethod, PaymentIntentResponse, PublicRequestOption } from "@ntumba/contracts";
+import type {
+  CreateQuoteResponse,
+  PayerMethod,
+  PaymentIntentResponse,
+  PublicRequestOption,
+} from "@ntumba/contracts";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { useState } from "react";
-import { createPublicRequestPaymentIntent, getPaymentIntent, getPublicRequest } from "../api.js";
+import {
+  createPublicRequestPaymentIntent,
+  createPublicRequestQuote,
+  getPaymentIntent,
+  getPublicRequest,
+} from "../api.js";
 import { Countdown, GuestShell, Icon, InlineStatus } from "../components.js";
-import { isExpired, plainStatus } from "../payment-ui.js";
+import { plainStatus } from "../payment-ui.js";
 
 export function CheckoutPage() {
   const { publicId } = useParams({ from: "/pay/$publicId" });
   const [selectedMethod, setSelectedMethod] = useState<PayerMethod>();
   const [selectedOption, setSelectedOption] = useState<PublicRequestOption>();
+  const [quote, setQuote] = useState<CreateQuoteResponse>();
   const [intent, setIntent] = useState<PaymentIntentResponse>();
   const [intentIdempotencyKey, setIntentIdempotencyKey] = useState(() => crypto.randomUUID());
   const [started, setStarted] = useState(false);
   const [copied, setCopied] = useState(false);
   const [selectionError, setSelectionError] = useState("");
-  const [expired, setExpired] = useState(false);
+  const [quoteExpired, setQuoteExpired] = useState(false);
+  const [requestExpired, setRequestExpired] = useState(false);
 
   const paymentRequest = useQuery({
     queryKey: ["public-request", publicId],
@@ -30,10 +42,11 @@ export function CheckoutPage() {
     retry: false,
   });
   const startPayment = useMutation({
-    mutationFn: (option: PublicRequestOption) =>
+    mutationFn: (selection: { option: PublicRequestOption; quoteId: string }) =>
       createPublicRequestPaymentIntent(publicId, {
         idempotencyKey: intentIdempotencyKey,
-        payerMethod: option.payerMethod,
+        payerMethod: selection.option.payerMethod,
+        quoteId: selection.quoteId,
       }),
     onError: (error) => {
       setSelectionError(
@@ -45,24 +58,47 @@ export function CheckoutPage() {
       setStarted(true);
     },
   });
+  const requestQuote = useMutation({
+    mutationFn: (selection: { idempotencyKey: string; payerMethod: PayerMethod }) =>
+      createPublicRequestQuote(publicId, selection),
+    onError: (error) => {
+      setSelectionError(
+        error instanceof Error ? error.message : "A fresh quote is unavailable right now.",
+      );
+    },
+    onSuccess: (created) => {
+      setQuote(created);
+      setQuoteExpired(false);
+    },
+  });
 
-  async function selectMethod(method: PayerMethod) {
+  function selectMethod(method: PayerMethod) {
     setSelectionError("");
     setStarted(false);
     setIntent(undefined);
     setIntentIdempotencyKey(crypto.randomUUID());
+    setQuote(undefined);
+    setQuoteExpired(false);
     setSelectedMethod(method);
-    const refreshed = await paymentRequest.refetch();
-    const option = refreshed.data?.options.find((item) => item.payerMethod === method);
+    const option = paymentRequest.data?.options.find((item) => item.payerMethod === method);
     if (!option) {
       setSelectionError("This payment method is not available right now.");
       setSelectedOption(undefined);
       return;
     }
-    if (isExpired(option.quote.expiresAt)) {
-      setExpired(true);
-    }
     setSelectedOption(option);
+    const idempotencyKey = crypto.randomUUID();
+    requestQuote.mutate({ idempotencyKey, payerMethod: method });
+  }
+
+  function refreshQuote() {
+    if (!selectedMethod) return;
+    setSelectionError("");
+    setQuote(undefined);
+    setQuoteExpired(false);
+    setIntentIdempotencyKey(crypto.randomUUID());
+    const idempotencyKey = crypto.randomUUID();
+    requestQuote.mutate({ idempotencyKey, payerMethod: selectedMethod });
   }
 
   async function copyInvoice() {
@@ -112,7 +148,7 @@ export function CheckoutPage() {
             </p>
             <Countdown
               expiresAt={paymentRequest.data.expiresAt}
-              onExpire={() => setExpired(true)}
+              onExpire={() => setRequestExpired(true)}
             />
           </div>
 
@@ -153,7 +189,7 @@ export function CheckoutPage() {
                 );
               })}
             </div>
-            {paymentRequest.isFetching && selectedMethod ? (
+            {requestQuote.isPending && selectedMethod ? (
               <InlineStatus>
                 <Icon name="clock" />
                 Getting your quote…
@@ -162,30 +198,27 @@ export function CheckoutPage() {
             {selectionError ? <InlineStatus tone="danger">{selectionError}</InlineStatus> : null}
           </div>
 
-          {selectedOption ? (
+          {selectedOption && quote ? (
             <div className="surface-card quote-card">
               <h2 className="section-heading">Your quote</h2>
               <div className="quote-amounts">
                 <div className="quote-amount">
                   <span>You pay</span>
-                  <strong>{selectedOption.quote.payerSends.display}</strong>
+                  <strong>{quote.payerSends.display}</strong>
                 </div>
                 <div className="quote-amount">
                   <span>Merchant receives</span>
-                  <strong>{selectedOption.quote.merchantReceives.display}</strong>
+                  <strong>{quote.merchantReceives.display}</strong>
                 </div>
               </div>
               <div className="quote-details">
-                <span>Rate: {selectedOption.quote.exchangeRate}</span>
-                <span>Fee: K{selectedOption.quote.feeZmw}</span>
-                <Countdown
-                  expiresAt={selectedOption.quote.expiresAt}
-                  onExpire={() => setExpired(true)}
-                />
+                <span>Rate: {quote.exchangeRate}</span>
+                <span>Fee: K{quote.feeZmw}</span>
+                <Countdown expiresAt={quote.expiresAt} onExpire={() => setQuoteExpired(true)} />
               </div>
               <InlineStatus>
                 <Icon name="shield" />
-                {checkout?.type === "direct_lightning"
+                {selectedOption.direction === "btc_to_btc"
                   ? "Bitcoin goes directly to the merchant’s external wallet."
                   : "This simulated conversion uses Ntumba-operated source and payout liquidity."}
               </InlineStatus>
@@ -193,19 +226,21 @@ export function CheckoutPage() {
               {!started ? (
                 <button
                   className="primary-button full-width"
-                  disabled={expired || startPayment.isPending}
-                  onClick={() => startPayment.mutate(selectedOption)}
+                  disabled={quoteExpired || requestExpired || startPayment.isPending}
+                  onClick={() =>
+                    startPayment.mutate({ option: selectedOption, quoteId: quote.quoteId })
+                  }
                   type="button"
                 >
                   {startPayment.isPending
                     ? "Preparing payment…"
-                    : expired
+                    : quoteExpired
                       ? "Quote expired"
                       : selectedOption.payerMethod === "BTC"
-                        ? checkout?.type === "direct_lightning"
-                          ? "Show Bitcoin invoice"
-                          : "Continue with Bitcoin"
-                        : "Continue with Mobile Money"}
+                        ? selectedOption.direction === "btc_to_btc"
+                          ? "Confirm and show Bitcoin invoice"
+                          : "Confirm and continue with Bitcoin"
+                        : "Confirm and continue with Mobile Money"}
                 </button>
               ) : (
                 <div className="form-stack">
@@ -242,10 +277,18 @@ export function CheckoutPage() {
                 </div>
               )}
 
-              {expired ? (
+              {quoteExpired ? (
                 <InlineStatus tone="warning">
                   <Icon name="clock" />
-                  This quote has expired. Ask the merchant for a new payment request.
+                  <span>This quote has expired. Refresh it while the request remains open.</span>
+                  <button
+                    className="text-button"
+                    disabled={requestQuote.isPending || requestExpired}
+                    onClick={refreshQuote}
+                    type="button"
+                  >
+                    Refresh quote
+                  </button>
                 </InlineStatus>
               ) : null}
             </div>
@@ -253,7 +296,7 @@ export function CheckoutPage() {
 
           <p className="privacy-note">
             <Icon name="shield" size={18} />
-            No customer account · Ntumba never holds the payment
+            No customer account · Destination details are not shown
           </p>
         </section>
       )}

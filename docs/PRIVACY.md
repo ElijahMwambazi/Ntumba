@@ -37,7 +37,7 @@ Raw merchant destinations are not placed in route parameters, query strings or U
 
 - Opaque payment-intent and quote IDs.
 - Opaque public request ID, destination lookup token, integer amount, receive asset, safe payer
-  option references and creation/expiry/purge timestamps.
+  method/direction options, quote bindings, one-time claim and creation/expiry/purge timestamps.
 - Opaque source/destination references, destination-vault token, leases and idempotency keys.
 - Direction, asset identifiers and integer ngwee/satoshi amounts.
 - Separate collection/settlement idempotency keys and normalized status.
@@ -66,21 +66,26 @@ Grafana binds to host loopback and has no third-party analytics enabled.
 ## Durable development public requests
 
 Guest checkout uses a short-lived PostgreSQL envelope under an opaque random UUID and marks every
-response `developmentOnly`. It contains only an integer amount, receive asset, safe quote options,
-an opaque destination lookup token and lifecycle timestamps. It contains no merchant
-label/reference, phone, Lightning address/invoice, customer identity or raw provider payload.
-Multiple server instances can read it after restart.
+response `developmentOnly`. It contains only an integer amount, receive asset, supported
+method/direction pairs, an opaque destination lookup token, lifecycle state/timestamps, safe
+payer-quote bindings and one claim with a stable payment-intent UUID. Merchant creation stores no
+rate or fixed quote. It contains no merchant label/reference, phone, Lightning address/invoice,
+customer identity, reversible destination fingerprint or raw provider payload. Multiple server
+instances can read the safe envelope after restart.
 
 This does not make the development destination vault durable. If the envelope survives but the
-vault token cannot be resolved, the request becomes unavailable before a payment intent, source
-invoice or mobile-money collection is created. Production recovery still requires a reviewed
-provider token or encrypted vault.
+vault token cannot be resolved, an open request becomes unavailable before it is claimed or a
+source invoice/mobile-money collection is created. Another instance is not fully able to pay the
+request merely because it can read the envelope. After a conversion source setup is already
+durable, the winning retry can recover that same checkout without redispatch. Production
+destination recovery still requires a reviewed provider token or encrypted vault in Phase 5.
 
 ## Deletion
 
 Development defaults:
 
 - Quotes expire after 60 seconds and purge one hour later.
+- Public requests remain open for 15 minutes by default, independently of quote expiry.
 - Payment intents purge one day after expiry.
 - Provider events carry explicit purge timestamps aligned to the associated intent.
 - Public request envelopes purge after their explicit retention timestamp.

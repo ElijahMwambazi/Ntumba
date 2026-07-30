@@ -39,6 +39,8 @@ describe("bridge configuration safety", () => {
     expect(() =>
       loadConfig({
         NODE_ENV: "development",
+        PUBLIC_REQUEST_TTL_SECONDS: "60",
+        QUOTE_TTL_SECONDS: "10",
         SETTLEMENT_CALLBACK_GRACE_SECONDS: "60",
         SETTLEMENT_DESTINATION_TTL_SECONDS: "239",
         SOURCE_PAYMENT_TTL_SECONDS: "180",
@@ -47,11 +49,32 @@ describe("bridge configuration safety", () => {
     expect(
       loadConfig({
         NODE_ENV: "development",
+        PUBLIC_REQUEST_TTL_SECONDS: "60",
+        QUOTE_TTL_SECONDS: "10",
         SETTLEMENT_CALLBACK_GRACE_SECONDS: "60",
         SETTLEMENT_DESTINATION_TTL_SECONDS: "240",
         SOURCE_PAYMENT_TTL_SECONDS: "180",
       }).SETTLEMENT_DESTINATION_TTL_SECONDS,
     ).toBe(240);
+  });
+
+  it("keeps destination retention beyond public-request quote confirmation", () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: "development",
+        PUBLIC_REQUEST_TTL_SECONDS: "900",
+        QUOTE_TTL_SECONDS: "60",
+        SETTLEMENT_DESTINATION_TTL_SECONDS: "959",
+      }),
+    ).toThrow("must cover the public request lifetime plus quote-confirmation grace");
+    expect(
+      loadConfig({
+        NODE_ENV: "development",
+        PUBLIC_REQUEST_TTL_SECONDS: "900",
+        QUOTE_TTL_SECONDS: "60",
+        SETTLEMENT_DESTINATION_TTL_SECONDS: "960",
+      }).PUBLIC_REQUEST_TTL_SECONDS,
+    ).toBe(900);
   });
 
   it("bounds provider finality and event-processing retry controls", () => {

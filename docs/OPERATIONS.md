@@ -16,6 +16,9 @@ obligations explicit.
 - No provider credential, wallet credential or real payment action exists.
 - PostgreSQL stores the safe public checkout envelope for multi-instance reads. The destination
   lookup token points only to the separate development memory vault.
+- `PUBLIC_REQUEST_TTL_SECONDS` defaults to 900 seconds and is independent from the 60-second quote
+  TTL. `SETTLEMENT_DESTINATION_TTL_SECONDS` must cover the request lifetime plus quote-confirmation
+  grace and defaults to 1200 seconds.
 - The destination vault is process memory only. Restart/expiry after conclusive source settlement
   creates one `refund_required` obligation; restart before source setup makes the durable request
   unavailable and no source rail is called.
@@ -59,6 +62,8 @@ purge is failing or failure/manual-review rates exceed thresholds.
   retained for unresolved financial state correctly produce no purge count.
 - Public request envelopes are deleted when their independent purge timestamp is due; this never
   authorizes deletion of treasury journal history.
+- Open, claimed and expired request counts can be inspected in PostgreSQL without exposing IDs;
+  a claimed request must never be manually reopened after provider uncertainty or failure.
 
 ## Incident priorities
 

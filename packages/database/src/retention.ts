@@ -191,8 +191,8 @@ export async function purgeExpiredOperationalData(
           SELECT 1 FROM payment_intents AS intent WHERE intent.quote_id = quote.id
         )
         AND NOT EXISTS (
-          SELECT 1 FROM public_payment_request_options AS request_option
-          WHERE request_option.quote_id = quote.id
+          SELECT 1 FROM public_payment_request_quote_bindings AS request_quote
+          WHERE request_quote.quote_id = quote.id
         )
       RETURNING id
     `);

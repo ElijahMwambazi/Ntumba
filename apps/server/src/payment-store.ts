@@ -67,6 +67,12 @@ export interface ProviderIntentCompletion {
   updatedAt: Date;
 }
 
+export interface DirectIntentCompletion {
+  expiresAt: Date;
+  providerReference: string;
+  updatedAt: Date;
+}
+
 export interface AppendProviderEventResult {
   event: StoredProviderEvent;
   outcome: "conflict" | "duplicate" | "inserted";
@@ -77,6 +83,10 @@ export interface PaymentStore extends OperationalSnapshotReader {
   completeProviderIntent(
     paymentIntentId: string,
     completion: ProviderIntentCompletion,
+  ): Promise<StoredPaymentIntent>;
+  completeDirectIntent(
+    paymentIntentId: string,
+    completion: DirectIntentCompletion,
   ): Promise<StoredPaymentIntent>;
   findIntentByIdempotencyKey(idempotencyKey: string): Promise<StoredPaymentIntent | undefined>;
   findIntentByProviderReference(
@@ -226,6 +236,28 @@ export class InMemoryPaymentStore implements PaymentStore {
       processedAt: completion.updatedAt,
       updatedAt: completion.updatedAt,
     });
+    return completed;
+  }
+
+  async completeDirectIntent(
+    paymentIntentId: string,
+    completion: DirectIntentCompletion,
+  ): Promise<StoredPaymentIntent> {
+    const intent = this.#intents.get(paymentIntentId);
+    if (!intent) {
+      throw new Error("Direct payment completion has no staged intent.");
+    }
+    if (intent.status !== "quote_locked") {
+      return intent;
+    }
+    const completed: StoredPaymentIntent = {
+      ...intent,
+      expiresAt: completion.expiresAt,
+      providerReference: completion.providerReference,
+      status: "direct_payment_pending",
+      updatedAt: completion.updatedAt,
+    };
+    this.#intents.set(paymentIntentId, completed);
     return completed;
   }
 
